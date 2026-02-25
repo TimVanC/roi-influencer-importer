@@ -44,11 +44,21 @@ function roi_influencer_importer_render_admin_page() {
 		'title_suffix'     => '',
 		'top_content'      => '',
 		'category_id'      => 0,
-		'base_publish_date'=> '',
-		'base_publish_time'=> '',
+		'base_publish_date' => '',
+		'base_publish_time' => '',
 		'spacing_interval' => 5,
 		'post_status'      => 'draft',
 	);
+
+	$stored_preview_data = get_transient( 'roi_import_preview' );
+	if ( is_array( $stored_preview_data ) ) {
+		$preview_data = array(
+			'headers'   => isset( $stored_preview_data['headers'] ) && is_array( $stored_preview_data['headers'] ) ? $stored_preview_data['headers'] : array(),
+			'row_count' => isset( $stored_preview_data['row_count'] ) ? absint( $stored_preview_data['row_count'] ) : 0,
+			'rows'      => isset( $stored_preview_data['rows'] ) && is_array( $stored_preview_data['rows'] ) ? $stored_preview_data['rows'] : array(),
+		);
+		$show_config_form = true;
+	}
 
 	if ( isset( $_POST['roi_csv_upload_submit'] ) ) {
 		$nonce = isset( $_POST['roi_csv_upload_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_csv_upload_nonce'] ) ) : '';
@@ -83,19 +93,21 @@ function roi_influencer_importer_render_admin_page() {
 						$notice_message = __( 'Could not read the uploaded CSV file.', 'roi-influencer-importer' );
 					} else {
 						$header_row = fgetcsv( $handle );
-						$row_count  = 0;
+						$parsed_rows = array();
 
-						while ( false !== fgetcsv( $handle ) ) {
-							++$row_count;
+						while ( false !== ( $row = fgetcsv( $handle ) ) ) {
+							$parsed_rows[] = $row;
 						}
 
 						fclose( $handle );
 
 						$preview_data = array(
-							'file_name' => $filename,
-							'row_count' => $row_count,
+							'row_count' => count( $parsed_rows ),
 							'headers'   => is_array( $header_row ) ? $header_row : array(),
+							'rows'      => $parsed_rows,
 						);
+
+						set_transient( 'roi_import_preview', $preview_data, 5 * MINUTE_IN_SECONDS );
 
 						$notice_type    = 'success';
 						$notice_message = __( 'CSV uploaded successfully. Preview generated below.', 'roi-influencer-importer' );
@@ -197,7 +209,6 @@ function roi_influencer_importer_render_admin_page() {
 			<?php if ( is_array( $preview_data ) ) : ?>
 				<hr />
 				<h3><?php echo esc_html__( 'Preview', 'roi-influencer-importer' ); ?></h3>
-				<p><strong><?php echo esc_html__( 'File name:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $preview_data['file_name'] ); ?></p>
 				<p><strong><?php echo esc_html__( 'Total rows detected:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $preview_data['row_count'] ); ?></p>
 
 				<p><strong><?php echo esc_html__( 'Header columns found:', 'roi-influencer-importer' ); ?></strong></p>
