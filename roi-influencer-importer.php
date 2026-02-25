@@ -140,7 +140,8 @@ function roi_influencer_importer_render_admin_page() {
 			$config_values['title_suffix']      = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
-			$config_values['author_id']         = isset( $_POST['roi_author_id'] ) ? absint( $_POST['roi_author_id'] ) : 0;
+			$author_id                          = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
+			$config_values['author_id']         = $author_id;
 			$config_values['base_publish_date'] = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
 			$config_values['base_publish_time'] = isset( $_POST['roi_base_publish_time'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_time'] ) ) : '';
 			$config_values['spacing_interval']  = isset( $_POST['roi_spacing_interval'] ) ? absint( $_POST['roi_spacing_interval'] ) : 5;
@@ -160,7 +161,10 @@ function roi_influencer_importer_render_admin_page() {
 				$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
 			}
 
-			if ( empty( $config_values['author_id'] ) || ! in_array( $config_values['author_id'], $eligible_user_ids, true ) ) {
+			$user           = get_userdata( $author_id );
+			$allowed_roles  = array( 'administrator', 'editor', 'author' );
+			$has_valid_role = ( $user && isset( $user->roles ) ) ? array_intersect( $allowed_roles, $user->roles ) : array();
+			if ( $author_id <= 0 || ! $user || empty( $has_valid_role ) ) {
 				$validation_errors[] = __( 'Author is required and must be an administrator, editor, or author.', 'roi-influencer-importer' );
 			}
 
