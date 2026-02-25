@@ -39,11 +39,13 @@ function roi_influencer_importer_render_admin_page() {
 	$show_config_form       = false;
 	$config_notice_type     = '';
 	$config_notice_message  = '';
-	$config_confirmation    = null;
+	$computed_preview       = null;
+	$current_user_id        = get_current_user_id();
 	$config_values          = array(
-		'title_suffix'     => '',
-		'top_content'      => '',
-		'category_id'      => 0,
+		'title_suffix'      => '',
+		'top_content'       => '',
+		'category_id'       => 0,
+		'author_id'         => $current_user_id,
 		'base_publish_date' => '',
 		'base_publish_time' => '',
 		'spacing_interval' => 5,
@@ -59,6 +61,15 @@ function roi_influencer_importer_render_admin_page() {
 		);
 		$show_config_form = true;
 	}
+
+	$eligible_users = get_users(
+		array(
+			'role__in' => array( 'administrator', 'editor', 'author' ),
+			'orderby'  => 'display_name',
+			'order'    => 'ASC',
+		)
+	);
+	$eligible_user_ids = array_map( 'intval', wp_list_pluck( $eligible_users, 'ID' ) );
 
 	if ( isset( $_POST['roi_csv_upload_submit'] ) ) {
 		$nonce = isset( $_POST['roi_csv_upload_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_csv_upload_nonce'] ) ) : '';
@@ -129,6 +140,7 @@ function roi_influencer_importer_render_admin_page() {
 			$config_values['title_suffix']      = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
+			$config_values['author_id']         = isset( $_POST['roi_author_id'] ) ? absint( $_POST['roi_author_id'] ) : 0;
 			$config_values['base_publish_date'] = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
 			$config_values['base_publish_time'] = isset( $_POST['roi_base_publish_time'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_time'] ) ) : '';
 			$config_values['spacing_interval']  = isset( $_POST['roi_spacing_interval'] ) ? absint( $_POST['roi_spacing_interval'] ) : 5;
@@ -148,6 +160,10 @@ function roi_influencer_importer_render_admin_page() {
 				$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
 			}
 
+			if ( empty( $config_values['author_id'] ) || ! in_array( $config_values['author_id'], $eligible_user_ids, true ) ) {
+				$validation_errors[] = __( 'Author is required and must be an administrator, editor, or author.', 'roi-influencer-importer' );
+			}
+
 			if ( '' === $config_values['base_publish_date'] ) {
 				$validation_errors[] = __( 'Base Publish Date is required.', 'roi-influencer-importer' );
 			}
@@ -156,7 +172,61 @@ function roi_influencer_importer_render_admin_page() {
 				$validation_errors[] = __( 'Base Publish Time is required.', 'roi-influencer-importer' );
 			}
 
-			if ( empty( $validation_errors ) ) {
+			if ( ! is_array( $preview_data ) || ! isset( $preview_data['headers'], $preview_data['rows'] ) || ! is_array( $preview_data['headers'] ) || ! is_array( $preview_data['rows'] ) ) {
+				$validation_errors[] = __( 'CSV preview data is missing or expired. Please upload the CSV again.', 'roi-influencer-importer' );
+			}
+
+			$last_name_index  = false;
+			$first_name_index = false;
+			if ( is_array( $preview_data ) && isset( $preview_data['headers'] ) && is_array( $preview_data['headers'] ) ) {
+				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
+				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
+			}
+
+			if ( false === $last_name_index ) {
+				$validation_errors[] = __( 'CSV must include a lastname column.', 'roi-influencer-importer' );
+			}
+
+			if ( false === $first_name_index ) {
+				$validation_errors[] = __( 'CSV must include a firstname column.', 'roi-influencer-importer' );
+			}
+
+			$base_timestamp = strtotime( $config_values['base_publish_date'] . ' ' . $config_values['base_publish_time'] );
+			if ( false === $base_timestamp ) {
+				$validation_errors[] = __( 'Base date/time is invalid.', 'roi-influencer-importer' );
+			}
+
+			if ( empty( $validation_errors ) && is_array( $preview_data ) ) {
+				$sorted_rows = $preview_data['rows'];
+				usort(
+					$sorted_rows,
+					static function( $row_a, $row_b ) use ( $last_name_index ) {
+						$last_a = isset( $row_a[ $last_name_index ] ) ? (string) $row_a[ $last_name_index ] : '';
+						$last_b = isset( $row_b[ $last_name_index ] ) ? (string) $row_b[ $last_name_index ] : '';
+						return strcasecmp( $last_a, $last_b );
+					}
+				);
+
+				$computed_items = array();
+				foreach ( $sorted_rows as $row_index => $row ) {
+					$last_name  = isset( $row[ $last_name_index ] ) ? trim( (string) $row[ $last_name_index ] ) : '';
+					$first_name = isset( $row[ $first_name_index ] ) ? trim( (string) $row[ $first_name_index ] ) : '';
+					$title      = $last_name . ', ' . $first_name . ' - ' . $config_values['title_suffix'];
+					$offset     = (int) $config_values['spacing_interval'] * (int) $row_index;
+					$timestamp  = strtotime( '+' . $offset . ' minutes', $base_timestamp );
+
+					$computed_items[] = array(
+						'title'            => $title,
+						'publish_datetime' => wp_date( 'Y-m-d H:i:s', $timestamp ),
+					);
+				}
+
+				$selected_author_name = __( 'Unknown', 'roi-influencer-importer' );
+				$selected_author      = get_userdata( $config_values['author_id'] );
+				if ( $selected_author instanceof WP_User ) {
+					$selected_author_name = $selected_author->display_name;
+				}
+
 				$selected_category_name = __( 'None selected', 'roi-influencer-importer' );
 				if ( $config_values['category_id'] > 0 ) {
 					$category = get_category( $config_values['category_id'] );
@@ -165,16 +235,16 @@ function roi_influencer_importer_render_admin_page() {
 					}
 				}
 
-				$config_confirmation = array(
-					'title_suffix'      => $config_values['title_suffix'],
-					'category_display'  => $selected_category_name,
-					'base_datetime'     => $config_values['base_publish_date'] . ' ' . $config_values['base_publish_time'],
-					'spacing_interval'  => $config_values['spacing_interval'],
-					'post_status_label' => ( 'publish' === $config_values['post_status'] ) ? __( 'Publish Immediately', 'roi-influencer-importer' ) : __( 'Draft', 'roi-influencer-importer' ),
+				$computed_preview = array(
+					'total_posts'          => count( $computed_items ),
+					'selected_author_name' => $selected_author_name,
+					'selected_category'    => $selected_category_name,
+					'first_titles'         => array_slice( wp_list_pluck( $computed_items, 'title' ), 0, 3 ),
+					'first_datetimes'      => array_slice( wp_list_pluck( $computed_items, 'publish_datetime' ), 0, 3 ),
 				);
 
 				$config_notice_type    = 'success';
-				$config_notice_message = __( 'Import configuration captured. No posts were created.', 'roi-influencer-importer' );
+				$config_notice_message = __( 'Import data prepared successfully. Posts have not been created yet.', 'roi-influencer-importer' );
 			} else {
 				$config_notice_type    = 'error';
 				$config_notice_message = implode( ' ', $validation_errors );
@@ -264,6 +334,24 @@ function roi_influencer_importer_render_admin_page() {
 					</p>
 
 					<p>
+						<label for="roi_author_id"><strong><?php echo esc_html__( 'Author (required)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<?php
+						$author_dropdown = wp_dropdown_users(
+							array(
+								'name'              => 'roi_author_id',
+								'id'                => 'roi_author_id',
+								'selected'          => (int) $config_values['author_id'],
+								'include'           => $eligible_user_ids,
+								'show_option_none'  => __( '-- Select an author --', 'roi-influencer-importer' ),
+								'option_none_value' => '0',
+								'echo'              => false,
+							)
+						);
+						echo wp_kses_post( str_replace( '<select', '<select required', $author_dropdown ) );
+						?>
+					</p>
+
+					<p>
 						<label for="roi_base_publish_date"><strong><?php echo esc_html__( 'Base Publish Date (required)', 'roi-influencer-importer' ); ?></strong></label><br />
 						<input type="date" id="roi_base_publish_date" name="roi_base_publish_date" required value="<?php echo esc_attr( $config_values['base_publish_date'] ); ?>" />
 					</p>
@@ -291,17 +379,63 @@ function roi_influencer_importer_render_admin_page() {
 					</p>
 				</form>
 
-				<?php if ( is_array( $config_confirmation ) ) : ?>
-					<hr />
-					<h3><?php echo esc_html__( 'Configuration Confirmation', 'roi-influencer-importer' ); ?></h3>
-					<p><strong><?php echo esc_html__( 'Title suffix:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $config_confirmation['title_suffix'] ); ?></p>
-					<p><strong><?php echo esc_html__( 'Category selected:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $config_confirmation['category_display'] ); ?></p>
-					<p><strong><?php echo esc_html__( 'Base date/time:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $config_confirmation['base_datetime'] ); ?></p>
-					<p><strong><?php echo esc_html__( 'Spacing interval:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $config_confirmation['spacing_interval'] ); ?></p>
-					<p><strong><?php echo esc_html__( 'Selected status:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $config_confirmation['post_status_label'] ); ?></p>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( is_array( $computed_preview ) ) : ?>
+			<div class="card">
+				<h2><?php echo esc_html__( 'Step 3: Computed Import Preview', 'roi-influencer-importer' ); ?></h2>
+
+				<p><strong><?php echo esc_html__( 'Total posts to be created:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $computed_preview['total_posts'] ); ?></p>
+				<p><strong><?php echo esc_html__( 'Selected author name:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $computed_preview['selected_author_name'] ); ?></p>
+				<p><strong><?php echo esc_html__( 'Selected category name:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $computed_preview['selected_category'] ); ?></p>
+
+				<p><strong><?php echo esc_html__( 'First 3 computed titles:', 'roi-influencer-importer' ); ?></strong></p>
+				<?php if ( ! empty( $computed_preview['first_titles'] ) ) : ?>
+					<ul>
+						<?php foreach ( $computed_preview['first_titles'] as $computed_title ) : ?>
+							<li><?php echo esc_html( $computed_title ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php else : ?>
+					<p><?php echo esc_html__( 'No computed titles available.', 'roi-influencer-importer' ); ?></p>
 				<?php endif; ?>
+
+				<p><strong><?php echo esc_html__( 'First 3 computed publish datetimes:', 'roi-influencer-importer' ); ?></strong></p>
+				<?php if ( ! empty( $computed_preview['first_datetimes'] ) ) : ?>
+					<ul>
+						<?php foreach ( $computed_preview['first_datetimes'] as $computed_datetime ) : ?>
+							<li><?php echo esc_html( $computed_datetime ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php else : ?>
+					<p><?php echo esc_html__( 'No computed publish datetimes available.', 'roi-influencer-importer' ); ?></p>
+				<?php endif; ?>
+
+				<p><em><?php echo esc_html__( 'Posts have not been created yet.', 'roi-influencer-importer' ); ?></em></p>
 			</div>
 		<?php endif; ?>
 	</div>
 	<?php
+}
+
+/**
+ * Find a CSV header index using normalized matching.
+ *
+ * @param array  $headers Header row values.
+ * @param string $target  Target header key.
+ *
+ * @return int|false
+ */
+function roi_influencer_importer_find_header_index( $headers, $target ) {
+	$target_normalized = preg_replace( '/[^a-z0-9]/', '', strtolower( (string) $target ) );
+
+	foreach ( $headers as $header_index => $header_value ) {
+		$header_normalized = preg_replace( '/[^a-z0-9]/', '', strtolower( trim( (string) $header_value ) ) );
+		if ( $header_normalized === $target_normalized ) {
+			return (int) $header_index;
+		}
+	}
+
+	return false;
 }
