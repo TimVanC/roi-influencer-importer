@@ -336,18 +336,15 @@ function roi_influencer_importer_render_admin_page() {
 					<p>
 						<label for="roi_author_id"><strong><?php echo esc_html__( 'Author (required)', 'roi-influencer-importer' ); ?></strong></label><br />
 						<?php
-						$author_dropdown = wp_dropdown_users(
+						wp_dropdown_users(
 							array(
-								'name'              => 'roi_author_id',
-								'id'                => 'roi_author_id',
-								'selected'          => (int) $config_values['author_id'],
-								'include'           => $eligible_user_ids,
-								'show_option_none'  => __( '-- Select an author --', 'roi-influencer-importer' ),
-								'option_none_value' => '0',
-								'echo'              => false,
+								'name'             => 'roi_import_author',
+								'role__in'         => array( 'administrator', 'editor', 'author' ),
+								'selected'         => get_current_user_id(),
+								'show_option_none' => '-- Select an author --',
+								'required'         => true,
 							)
 						);
-						echo wp_kses_post( str_replace( '<select', '<select required', $author_dropdown ) );
 						?>
 					</p>
 
