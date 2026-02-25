@@ -157,7 +157,7 @@ function roi_influencer_importer_render_admin_page() {
 				}
 
 				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
-				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
+				$full_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
 				$position_index   = roi_influencer_importer_find_header_index( $preview_data['headers'], 'position' );
 				$company_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'company' );
 				$writeup_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'writeup' );
@@ -165,8 +165,8 @@ function roi_influencer_importer_render_admin_page() {
 					$writeup_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'newwriteup' );
 				}
 
-				if ( false === $last_name_index || false === $first_name_index ) {
-					$validation_errors[] = __( 'CSV must include firstname and lastname columns.', 'roi-influencer-importer' );
+				if ( false === $last_name_index || false === $full_name_index ) {
+					$validation_errors[] = __( 'CSV must include lastname and fullname columns.', 'roi-influencer-importer' );
 				}
 
 				if ( empty( $spacing_interval ) ) {
@@ -201,14 +201,12 @@ function roi_influencer_importer_render_admin_page() {
 					foreach ( $sorted_rows as $row_index => $row ) {
 						++$total_attempted;
 
-						$last_name = isset( $row[ $last_name_index ] ) ? trim( (string) $row[ $last_name_index ] ) : '';
-						$first_name = isset( $row[ $first_name_index ] ) ? trim( (string) $row[ $first_name_index ] ) : '';
+						$fullname = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
 						$position = ( false !== $position_index && isset( $row[ $position_index ] ) ) ? (string) $row[ $position_index ] : '';
 						$company = ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '';
 						$writeup = ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '';
 
-						$fullname = trim( $last_name . ', ' . $first_name, ", \t\n\r\0\x0B" );
-						$title    = $title_prefix . $fullname;
+						$title = rtrim( $title_prefix ) . ' ' . $fullname;
 
 						$content = '';
 						if ( ! empty( $top_content_block ) ) {
@@ -324,18 +322,18 @@ function roi_influencer_importer_render_admin_page() {
 			}
 
 			$last_name_index  = false;
-			$first_name_index = false;
+			$full_name_index  = false;
 			if ( is_array( $preview_data ) && isset( $preview_data['headers'] ) && is_array( $preview_data['headers'] ) ) {
-				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
-				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
+				$last_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
+				$full_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
 			}
 
 			if ( false === $last_name_index ) {
 				$validation_errors[] = __( 'CSV must include a lastname column.', 'roi-influencer-importer' );
 			}
 
-			if ( false === $first_name_index ) {
-				$validation_errors[] = __( 'CSV must include a firstname column.', 'roi-influencer-importer' );
+			if ( false === $full_name_index ) {
+				$validation_errors[] = __( 'CSV must include a fullname column.', 'roi-influencer-importer' );
 			}
 
 			$base_timestamp = strtotime( $config_values['base_publish_date'] . ' ' . $config_values['base_publish_time'] );
@@ -356,9 +354,8 @@ function roi_influencer_importer_render_admin_page() {
 
 				$computed_items = array();
 				foreach ( $sorted_rows as $row_index => $row ) {
-					$last_name  = isset( $row[ $last_name_index ] ) ? trim( (string) $row[ $last_name_index ] ) : '';
-					$first_name = isset( $row[ $first_name_index ] ) ? trim( (string) $row[ $first_name_index ] ) : '';
-					$title      = $last_name . ', ' . $first_name . ' - ' . $config_values['title_suffix'];
+					$fullname   = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
+					$title      = rtrim( $config_values['title_suffix'] ) . ' ' . $fullname;
 					$offset     = (int) $config_values['spacing_interval'] * (int) $row_index;
 					$timestamp  = strtotime( '+' . $offset . ' minutes', $base_timestamp );
 
@@ -455,7 +452,7 @@ function roi_influencer_importer_render_admin_page() {
 					<?php wp_nonce_field( 'roi_import_config_action', 'roi_import_config_nonce' ); ?>
 
 					<p>
-						<label for="roi_title_suffix"><strong><?php echo esc_html__( 'Title Suffix (required)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<label for="roi_title_suffix"><strong><?php echo esc_html__( 'Title Prefix (required)', 'roi-influencer-importer' ); ?></strong></label><br />
 						<input type="text" id="roi_title_suffix" name="roi_title_suffix" class="regular-text" required value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
 					</p>
 
