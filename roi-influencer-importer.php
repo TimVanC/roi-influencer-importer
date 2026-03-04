@@ -45,6 +45,7 @@ function roi_influencer_importer_render_admin_page() {
 	$config_values          = array(
 		'title_suffix'      => '',
 		'top_content'       => '',
+		'image_label'       => '',
 		'category_id'       => 0,
 		'author_id'         => $current_user_id,
 		'base_publish_date' => '',
@@ -136,6 +137,7 @@ function roi_influencer_importer_render_admin_page() {
 			} else {
 				$title_prefix                   = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 				$top_content_block              = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
+				$image_label                    = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 				$category_id                    = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
 				$author_id                      = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 				$base_publish_date              = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
@@ -156,7 +158,12 @@ function roi_influencer_importer_render_admin_page() {
 					$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
 				}
 
+				if ( '' === $image_label ) {
+					$validation_errors[] = __( 'Image Label is required.', 'roi-influencer-importer' );
+				}
+
 				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
+				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
 				$full_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
 				$position_index   = roi_influencer_importer_find_header_index( $preview_data['headers'], 'position' );
 				$company_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'company' );
@@ -167,6 +174,10 @@ function roi_influencer_importer_render_admin_page() {
 
 				if ( false === $last_name_index || false === $full_name_index ) {
 					$validation_errors[] = __( 'CSV must include lastname and fullname columns.', 'roi-influencer-importer' );
+				}
+
+				if ( false === $first_name_index ) {
+					$validation_errors[] = __( 'CSV must include a firstname column.', 'roi-influencer-importer' );
 				}
 
 				if ( empty( $spacing_interval ) ) {
@@ -197,14 +208,19 @@ function roi_influencer_importer_render_admin_page() {
 					$total_attempted  = 0;
 					$total_successful = 0;
 					$failures         = array();
+					$missing_images   = array();
+					$images_assigned  = 0;
 
 					foreach ( $sorted_rows as $row_index => $row ) {
 						++$total_attempted;
 
+						$last_name = isset( $row[ $last_name_index ] ) ? (string) $row[ $last_name_index ] : '';
+						$first_name = ( false !== $first_name_index && isset( $row[ $first_name_index ] ) ) ? (string) $row[ $first_name_index ] : '';
 						$fullname = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
 						$position = ( false !== $position_index && isset( $row[ $position_index ] ) ) ? (string) $row[ $position_index ] : '';
 						$company = ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '';
 						$writeup = ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '';
+						$expected_image_filename = $last_name . ', ' . $first_name . ' - ' . $image_label . '.png';
 
 						$title = rtrim( $title_prefix ) . ' ' . $fullname;
 
@@ -246,6 +262,15 @@ function roi_influencer_importer_render_admin_page() {
 						}
 
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
+
+						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $expected_image_filename );
+						if ( $attachment_id > 0 ) {
+							set_post_thumbnail( $post_id, $attachment_id );
+							++$images_assigned;
+						} else {
+							$missing_images[] = $expected_image_filename;
+						}
+
 						++$total_successful;
 					}
 
@@ -258,6 +283,8 @@ function roi_influencer_importer_render_admin_page() {
 						'total_created'        => $total_successful,
 						'batch_id'             => $batch_id,
 						'failures'             => $failures,
+						'images_assigned'      => $images_assigned,
+						'missing_images'       => $missing_images,
 					);
 
 					$config_notice_type    = 'success';
@@ -280,6 +307,7 @@ function roi_influencer_importer_render_admin_page() {
 		} else {
 			$config_values['title_suffix']      = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
+			$config_values['image_label']       = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
 			$author_id                          = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 			$config_values['author_id']         = $author_id;
@@ -300,6 +328,10 @@ function roi_influencer_importer_render_admin_page() {
 
 			if ( '' === $config_values['title_suffix'] ) {
 				$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
+			}
+
+			if ( '' === $config_values['image_label'] ) {
+				$validation_errors[] = __( 'Image Label is required.', 'roi-influencer-importer' );
 			}
 
 			$user           = get_userdata( $author_id );
@@ -462,6 +494,13 @@ function roi_influencer_importer_render_admin_page() {
 					</p>
 
 					<p>
+						<label for="roi_image_label"><strong><?php echo esc_html__( 'Image Label (required)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<input type="text" id="roi_image_label" name="roi_image_label" class="regular-text" required value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
+						<br />
+						<span class="description"><?php echo esc_html__( 'This must match the label used when exporting images from Canva.', 'roi-influencer-importer' ); ?></span>
+					</p>
+
+					<p>
 						<label for="roi_category_id"><strong><?php echo esc_html__( 'Category', 'roi-influencer-importer' ); ?></strong></label><br />
 						<?php
 						wp_dropdown_categories(
@@ -559,6 +598,7 @@ function roi_influencer_importer_render_admin_page() {
 					<?php wp_nonce_field( 'roi_run_import_action', 'roi_run_import_nonce' ); ?>
 					<input type="hidden" name="roi_title_suffix" value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
 					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
+					<input type="hidden" name="roi_image_label" value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
 					<input type="hidden" name="roi_category_id" value="<?php echo esc_attr( (string) $config_values['category_id'] ); ?>" />
 					<input type="hidden" name="roi_import_author" value="<?php echo esc_attr( (string) $config_values['author_id'] ); ?>" />
 					<input type="hidden" name="roi_base_publish_date" value="<?php echo esc_attr( $config_values['base_publish_date'] ); ?>" />
@@ -581,7 +621,17 @@ function roi_influencer_importer_render_admin_page() {
 				<?php if ( ! empty( $import_results['failures'] ) ) : ?>
 					<p><strong><?php echo esc_html__( 'Failed rows:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['failures'] ) ); ?></p>
 				<?php endif; ?>
-				<p><em><?php echo esc_html__( 'Images have not been assigned yet.', 'roi-influencer-importer' ); ?></em></p>
+				<p><strong><?php echo esc_html__( 'Images successfully assigned:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $import_results['images_assigned'] ); ?></p>
+				<p><strong><?php echo esc_html__( 'Images missing:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['missing_images'] ) ); ?></p>
+				<?php if ( ! empty( $import_results['missing_images'] ) ) : ?>
+					<p><strong><?php echo esc_html__( 'Missing Images:', 'roi-influencer-importer' ); ?></strong></p>
+					<ul>
+						<?php foreach ( $import_results['missing_images'] as $missing_image_filename ) : ?>
+							<li><?php echo esc_html( $missing_image_filename ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<p><em><?php echo esc_html__( 'Featured image assignment was attempted during import.', 'roi-influencer-importer' ); ?></em></p>
 			</div>
 		<?php endif; ?>
 	</div>
@@ -607,4 +657,54 @@ function roi_influencer_importer_find_header_index( $headers, $target ) {
 	}
 
 	return false;
+}
+
+/**
+ * Find an attachment ID by expected filename.
+ *
+ * @param string $expected_filename Expected image filename.
+ *
+ * @return int
+ */
+function roi_influencer_importer_find_attachment_id_by_filename( $expected_filename ) {
+	$expected_filename = trim( (string) $expected_filename );
+	if ( '' === $expected_filename ) {
+		return 0;
+	}
+
+	$expected_filename_lc = strtolower( $expected_filename );
+	$expected_title_lc    = strtolower( pathinfo( $expected_filename, PATHINFO_FILENAME ) );
+
+	$attachments = get_posts(
+		array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'DESC',
+		)
+	);
+
+	foreach ( $attachments as $attachment_id ) {
+		$attached_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
+		$guid          = (string) get_post_field( 'guid', $attachment_id );
+		$post_title    = (string) get_post_field( 'post_title', $attachment_id );
+		$post_name     = (string) get_post_field( 'post_name', $attachment_id );
+
+		$attached_file_basename = strtolower( wp_basename( $attached_file ) );
+		$guid_basename          = strtolower( wp_basename( $guid ) );
+		$post_title_lc          = strtolower( $post_title );
+		$post_name_lc           = strtolower( $post_name );
+
+		if ( $attached_file_basename === $expected_filename_lc || $guid_basename === $expected_filename_lc ) {
+			return (int) $attachment_id;
+		}
+
+		if ( $post_title_lc === $expected_title_lc || $post_title_lc === $expected_filename_lc || $post_name_lc === $expected_title_lc || $post_name_lc === $expected_filename_lc ) {
+			return (int) $attachment_id;
+		}
+	}
+
+	return 0;
 }
