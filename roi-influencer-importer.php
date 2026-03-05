@@ -689,20 +689,45 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 		return 0;
 	}
 
-	$attachments = get_posts(
+	$recent_query = new WP_Query(
 		array(
 			'post_type'      => 'attachment',
 			'post_status'    => 'inherit',
-			'posts_per_page' => -1,
+			'posts_per_page' => 300,
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'fields'         => 'ids',
 		)
 	);
 
-	foreach ( $attachments as $attachment ) {
-		$attached_file = (string) get_post_meta( $attachment->ID, '_wp_attached_file', true );
-		$basename      = wp_basename( $attached_file );
-		if ( '' !== $basename && false !== strpos( strtolower( $basename ), $sanitized_filename ) ) {
-			return (int) $attachment->ID;
+	if ( ! empty( $recent_query->posts ) ) {
+		foreach ( $recent_query->posts as $attachment_id ) {
+			$attached_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
+			$basename      = wp_basename( $attached_file );
+			if ( '' !== $basename && false !== strpos( strtolower( $basename ), $sanitized_filename ) ) {
+				return (int) $attachment_id;
+			}
 		}
+	}
+
+	$fallback_query = new WP_Query(
+		array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => 5,
+			'fields'         => 'ids',
+			'meta_query'     => array(
+				array(
+					'key'     => '_wp_attached_file',
+					'value'   => $sanitized_filename,
+					'compare' => 'LIKE',
+				),
+			),
+		)
+	);
+
+	if ( ! empty( $fallback_query->posts ) ) {
+		return (int) $fallback_query->posts[0];
 	}
 
 	return 0;
