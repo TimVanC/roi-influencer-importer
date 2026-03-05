@@ -232,7 +232,7 @@ function roi_influencer_importer_render_admin_page() {
 							'writeup'   => ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '',
 						);
 
-						$expected_image_filename = $row_data['lastname'] . ', ' . $row_data['firstname'] . ' - ' . $image_label . '.png';
+						$raw_filename = $row_data['lastname'] . ', ' . $row_data['firstname'] . ' - ' . $image_label;
 
 						$title = rtrim( $title_prefix ) . ' ' . $row_data['fullname'];
 
@@ -275,12 +275,12 @@ function roi_influencer_importer_render_admin_page() {
 
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
 
-						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $expected_image_filename );
+						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
 						if ( $attachment_id > 0 ) {
 							set_post_thumbnail( $post_id, $attachment_id );
 							++$images_assigned;
 						} else {
-							$missing_images[] = $expected_image_filename;
+							$missing_images[] = $raw_filename;
 						}
 
 						++$total_successful;
@@ -672,49 +672,36 @@ function roi_influencer_importer_find_header_index( $headers, $target ) {
 }
 
 /**
- * Find an attachment ID by expected filename.
+ * Find an attachment ID by raw filename.
  *
- * @param string $expected_filename Expected image filename.
+ * @param string $raw_filename Raw image filename without extension.
  *
  * @return int
  */
-function roi_influencer_importer_find_attachment_id_by_filename( $expected_filename ) {
-	$expected_filename = trim( (string) $expected_filename );
-	if ( '' === $expected_filename ) {
+function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename ) {
+	$raw_filename = trim( (string) $raw_filename );
+	if ( '' === $raw_filename ) {
 		return 0;
 	}
 
-	$expected_filename_lc = strtolower( $expected_filename );
-	$expected_title_lc    = strtolower( pathinfo( $expected_filename, PATHINFO_FILENAME ) );
+	$sanitized_filename = sanitize_title( $raw_filename );
+	if ( '' === $sanitized_filename ) {
+		return 0;
+	}
 
 	$attachments = get_posts(
 		array(
 			'post_type'      => 'attachment',
 			'post_status'    => 'inherit',
 			'posts_per_page' => -1,
-			'fields'         => 'ids',
-			'orderby'        => 'ID',
-			'order'          => 'DESC',
 		)
 	);
 
-	foreach ( $attachments as $attachment_id ) {
-		$attached_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
-		$guid          = (string) get_post_field( 'guid', $attachment_id );
-		$post_title    = (string) get_post_field( 'post_title', $attachment_id );
-		$post_name     = (string) get_post_field( 'post_name', $attachment_id );
-
-		$attached_file_basename = strtolower( wp_basename( $attached_file ) );
-		$guid_basename          = strtolower( wp_basename( $guid ) );
-		$post_title_lc          = strtolower( $post_title );
-		$post_name_lc           = strtolower( $post_name );
-
-		if ( $attached_file_basename === $expected_filename_lc || $guid_basename === $expected_filename_lc ) {
-			return (int) $attachment_id;
-		}
-
-		if ( $post_title_lc === $expected_title_lc || $post_title_lc === $expected_filename_lc || $post_name_lc === $expected_title_lc || $post_name_lc === $expected_filename_lc ) {
-			return (int) $attachment_id;
+	foreach ( $attachments as $attachment ) {
+		$attached_file = (string) get_post_meta( $attachment->ID, '_wp_attached_file', true );
+		$basename      = wp_basename( $attached_file );
+		if ( '' !== $basename && false !== strpos( strtolower( $basename ), $sanitized_filename ) ) {
+			return (int) $attachment->ID;
 		}
 	}
 
