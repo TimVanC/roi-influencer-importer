@@ -276,9 +276,14 @@ function roi_influencer_importer_render_admin_page() {
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
 
 						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
-						if ( $attachment_id > 0 ) {
-							set_post_thumbnail( $post_id, $attachment_id );
-							++$images_assigned;
+						if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
+							$attachment_meta = wp_get_attachment_metadata( $attachment_id );
+							if ( ! empty( $attachment_meta ) ) {
+								set_post_thumbnail( $post_id, $attachment_id );
+								++$images_assigned;
+							} else {
+								$missing_images[] = $raw_filename;
+							}
 						} else {
 							$missing_images[] = $raw_filename;
 						}
@@ -693,6 +698,7 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 		array(
 			'post_type'      => 'attachment',
 			'post_status'    => 'inherit',
+			'post_mime_type' => 'image',
 			'posts_per_page' => 300,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
@@ -705,7 +711,12 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 			$attached_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
 			$basename      = wp_basename( $attached_file );
 			if ( '' !== $basename && false !== strpos( strtolower( $basename ), $sanitized_filename ) ) {
-				return (int) $attachment_id;
+				if ( wp_attachment_is_image( $attachment_id ) ) {
+					$attachment_meta = wp_get_attachment_metadata( $attachment_id );
+					if ( ! empty( $attachment_meta ) ) {
+						return (int) $attachment_id;
+					}
+				}
 			}
 		}
 	}
@@ -714,6 +725,7 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 		array(
 			'post_type'      => 'attachment',
 			'post_status'    => 'inherit',
+			'post_mime_type' => 'image',
 			'posts_per_page' => 5,
 			'fields'         => 'ids',
 			'meta_query'     => array(
@@ -727,7 +739,14 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 	);
 
 	if ( ! empty( $fallback_query->posts ) ) {
-		return (int) $fallback_query->posts[0];
+		foreach ( $fallback_query->posts as $attachment_id ) {
+			if ( wp_attachment_is_image( $attachment_id ) ) {
+				$attachment_meta = wp_get_attachment_metadata( $attachment_id );
+				if ( ! empty( $attachment_meta ) ) {
+					return (int) $attachment_id;
+				}
+			}
+		}
 	}
 
 	return 0;
