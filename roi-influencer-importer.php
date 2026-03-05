@@ -155,7 +155,7 @@ function roi_influencer_importer_render_admin_page() {
 				}
 
 				if ( '' === $title_prefix ) {
-					$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
+					$validation_errors[] = __( 'Title Prefix is required.', 'roi-influencer-importer' );
 				}
 
 				if ( '' === $image_label ) {
@@ -165,12 +165,9 @@ function roi_influencer_importer_render_admin_page() {
 				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
 				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
 				$full_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
-				$position_index   = roi_influencer_importer_find_header_index( $preview_data['headers'], 'position' );
+				$title_index      = roi_influencer_importer_find_header_index( $preview_data['headers'], 'title' );
 				$company_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'company' );
 				$writeup_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'writeup' );
-				if ( false === $writeup_index ) {
-					$writeup_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'newwriteup' );
-				}
 
 				if ( false === $last_name_index || false === $full_name_index ) {
 					$validation_errors[] = __( 'CSV must include lastname and fullname columns.', 'roi-influencer-importer' );
@@ -178,6 +175,18 @@ function roi_influencer_importer_render_admin_page() {
 
 				if ( false === $first_name_index ) {
 					$validation_errors[] = __( 'CSV must include a firstname column.', 'roi-influencer-importer' );
+				}
+
+				if ( false === $title_index ) {
+					$validation_errors[] = __( 'CSV must include a title column.', 'roi-influencer-importer' );
+				}
+
+				if ( false === $company_index ) {
+					$validation_errors[] = __( 'CSV must include a company column.', 'roi-influencer-importer' );
+				}
+
+				if ( false === $writeup_index ) {
+					$validation_errors[] = __( 'CSV must include a writeup column.', 'roi-influencer-importer' );
 				}
 
 				if ( empty( $spacing_interval ) ) {
@@ -214,26 +223,29 @@ function roi_influencer_importer_render_admin_page() {
 					foreach ( $sorted_rows as $row_index => $row ) {
 						++$total_attempted;
 
-						$last_name = isset( $row[ $last_name_index ] ) ? (string) $row[ $last_name_index ] : '';
-						$first_name = ( false !== $first_name_index && isset( $row[ $first_name_index ] ) ) ? (string) $row[ $first_name_index ] : '';
-						$fullname = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
-						$position = ( false !== $position_index && isset( $row[ $position_index ] ) ) ? (string) $row[ $position_index ] : '';
-						$company = ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '';
-						$writeup = ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '';
-						$expected_image_filename = $last_name . ', ' . $first_name . ' - ' . $image_label . '.png';
+						$row_data = array(
+							'lastname'  => isset( $row[ $last_name_index ] ) ? (string) $row[ $last_name_index ] : '',
+							'firstname' => ( false !== $first_name_index && isset( $row[ $first_name_index ] ) ) ? (string) $row[ $first_name_index ] : '',
+							'fullname'  => ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '',
+							'title'     => ( false !== $title_index && isset( $row[ $title_index ] ) ) ? (string) $row[ $title_index ] : '',
+							'company'   => ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '',
+							'writeup'   => ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '',
+						);
 
-						$title = rtrim( $title_prefix ) . ' ' . $fullname;
+						$expected_image_filename = $row_data['lastname'] . ', ' . $row_data['firstname'] . ' - ' . $image_label . '.png';
+
+						$title = rtrim( $title_prefix ) . ' ' . $row_data['fullname'];
 
 						$content = '';
 						if ( ! empty( $top_content_block ) ) {
 							$content .= '<p style="text-align: center;">' . $top_content_block . '</p>';
 						}
 						$content .= '<p style="text-align: center;">';
-						$content .= '<strong>' . esc_html( $fullname ) . '</strong><br>';
-						$content .= esc_html( $position ) . '<br>';
-						$content .= '<strong><em>' . esc_html( $company ) . '</em></strong>';
+						$content .= '<strong>' . esc_html( $row_data['fullname'] ) . '</strong><br>';
+						$content .= esc_html( $row_data['title'] ) . '<br>';
+						$content .= '<strong><em>' . esc_html( $row_data['company'] ) . '</em></strong>';
 						$content .= '</p>';
-						$content .= wp_kses_post( $writeup );
+						$content .= wp_kses_post( $row_data['writeup'] );
 
 						$timestamp     = (int) $base_timestamp + ( (int) $spacing_interval * 60 * (int) $row_index );
 						$post_date     = wp_date( 'Y-m-d H:i:s', $timestamp );
@@ -253,7 +265,7 @@ function roi_influencer_importer_render_admin_page() {
 						);
 
 						if ( is_wp_error( $post_id ) ) {
-							$failures[] = $fullname;
+							$failures[] = $row_data['fullname'];
 							continue;
 						}
 
@@ -327,7 +339,7 @@ function roi_influencer_importer_render_admin_page() {
 			$validation_errors = array();
 
 			if ( '' === $config_values['title_suffix'] ) {
-				$validation_errors[] = __( 'Title Suffix is required.', 'roi-influencer-importer' );
+				$validation_errors[] = __( 'Title Prefix is required.', 'roi-influencer-importer' );
 			}
 
 			if ( '' === $config_values['image_label'] ) {
