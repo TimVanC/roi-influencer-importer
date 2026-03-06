@@ -285,8 +285,8 @@ function roi_influencer_importer_render_admin_page() {
 						if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
 							$attachment_meta = wp_get_attachment_metadata( $attachment_id );
 							if ( ! empty( $attachment_meta ) ) {
-								// Layer 6 image assignment temporarily disabled due to CDN migration issues.
-								// set_post_thumbnail( $post_id, $attachment_id );
+								// Layer 6 image assignment re-enabled after CDN migration fix.
+								set_post_thumbnail( $post_id, $attachment_id );
 								++$images_assigned;
 							} else {
 								$missing_images[] = $raw_filename;
@@ -577,6 +577,10 @@ function roi_influencer_importer_render_admin_page() {
 								<?php $render_roi_category_branch( (int) $roi_parent_category->term_id, 1 ); ?>
 							<?php endif; ?>
 						</select>
+						<?php if ( ! ( $roi_parent_category instanceof WP_Term ) ) : ?>
+							<br />
+							<span class="description"><?php echo esc_html__( 'ROI Influencers category branch not found. Please create a parent category with slug "roi-influencers".', 'roi-influencer-importer' ); ?></span>
+						<?php endif; ?>
 					</p>
 
 					<p>
@@ -703,6 +707,8 @@ function roi_influencer_importer_render_admin_page() {
 				<?php if ( ! empty( $import_results['failures'] ) ) : ?>
 					<p><strong><?php echo esc_html__( 'Failed rows:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['failures'] ) ); ?></p>
 				<?php endif; ?>
+				<p><strong><?php echo esc_html__( 'Images successfully assigned:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $import_results['images_assigned'] ); ?></p>
+				<p><strong><?php echo esc_html__( 'Images missing:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['missing_images'] ) ); ?></p>
 			</div>
 		<?php endif; ?>
 	</div>
@@ -743,10 +749,7 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 		return 0;
 	}
 
-	/*
-	Image matching logic temporarily disabled due to CDN migration issues.
-	Will re-enable once infrastructure is stable.
-
+	// Layer 6 image assignment re-enabled after CDN migration fix.
 	$sanitized_filename = sanitize_title( $raw_filename );
 	if ( '' === $sanitized_filename ) {
 		return 0;
@@ -806,7 +809,6 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 			}
 		}
 	}
-	*/
 
 	return 0;
 }
