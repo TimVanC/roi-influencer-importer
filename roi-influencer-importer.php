@@ -47,6 +47,7 @@ function roi_influencer_importer_render_admin_page() {
 		'top_content'       => '',
 		'image_label'       => '',
 		'category_id'       => 0,
+		'template_id'       => 0,
 		'author_id'         => $current_user_id,
 		'base_publish_date' => '',
 		'base_publish_time' => '',
@@ -139,6 +140,7 @@ function roi_influencer_importer_render_admin_page() {
 				$top_content_block              = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 				$image_label                    = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 				$category_id                    = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
+				$template_id                    = isset( $_POST['roi_template_id'] ) ? absint( $_POST['roi_template_id'] ) : 0;
 				$author_id                      = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 				$base_publish_date              = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
 				$base_publish_time              = isset( $_POST['roi_base_publish_time'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_time'] ) ) : '';
@@ -273,8 +275,15 @@ function roi_influencer_importer_render_admin_page() {
 							wp_set_post_categories( $post_id, array( $category_id ) );
 						}
 
+						if ( $template_id > 0 ) {
+							update_post_meta( $post_id, 'tdb_template_id', $template_id );
+						}
+
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
 
+						// Layer 6 image assignment temporarily disabled due to CDN migration issues.
+						// Will re-enable after infrastructure is stable.
+						/*
 						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
 						if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
 							$attachment_meta = wp_get_attachment_metadata( $attachment_id );
@@ -287,6 +296,7 @@ function roi_influencer_importer_render_admin_page() {
 						} else {
 							$missing_images[] = $raw_filename;
 						}
+						*/
 
 						++$total_successful;
 					}
@@ -326,6 +336,7 @@ function roi_influencer_importer_render_admin_page() {
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 			$config_values['image_label']       = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
+			$config_values['template_id']       = isset( $_POST['roi_template_id'] ) ? absint( $_POST['roi_template_id'] ) : 0;
 			$author_id                          = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 			$config_values['author_id']         = $author_id;
 			$config_values['base_publish_date'] = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
@@ -518,19 +529,43 @@ function roi_influencer_importer_render_admin_page() {
 					</p>
 
 					<p>
-						<label for="roi_category_id"><strong><?php echo esc_html__( 'Category', 'roi-influencer-importer' ); ?></strong></label><br />
-						<?php
-						wp_dropdown_categories(
-							array(
-								'taxonomy'         => 'category',
-								'hide_empty'       => 0,
-								'name'             => 'roi_category_id',
-								'id'               => 'roi_category_id',
-								'selected'         => (int) $config_values['category_id'],
-								'show_option_none' => __( '-- Select a category --', 'roi-influencer-importer' ),
-							)
-						);
-						?>
+						<label for="roi_category_id"><strong><?php echo esc_html__( 'Select ROI Influencers Category', 'roi-influencer-importer' ); ?></strong></label><br />
+						<?php $roi_category_options = roi_influencer_importer_get_roi_category_options(); ?>
+						<select id="roi_category_id" name="roi_category_id">
+							<option value="0"><?php echo esc_html__( '-- Select ROI Influencers Category --', 'roi-influencer-importer' ); ?></option>
+							<?php foreach ( $roi_category_options as $roi_category_option ) : ?>
+								<?php
+								$category_indent = str_repeat( '— ', (int) $roi_category_option['depth'] );
+								$category_label  = $category_indent . $roi_category_option['name'];
+								?>
+								<option value="<?php echo esc_attr( (string) $roi_category_option['term_id'] ); ?>" <?php selected( (int) $config_values['category_id'], (int) $roi_category_option['term_id'] ); ?>>
+									<?php echo esc_html( $category_label ); ?>
+								</option>
+							<?php endforeach; ?>
+						</select>
+					</p>
+
+					<p>
+						<label for="roi_template_id"><strong><?php echo esc_html__( 'Cloud Template (optional)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<select id="roi_template_id" name="roi_template_id">
+							<option value="0"><?php echo esc_html__( '-- No cloud template --', 'roi-influencer-importer' ); ?></option>
+							<?php
+							$cloud_templates = get_posts(
+								array(
+									'post_type'      => 'tdb_templates',
+									'post_status'    => 'publish',
+									'posts_per_page' => -1,
+									'orderby'        => 'title',
+									'order'          => 'ASC',
+								)
+							);
+							?>
+							<?php foreach ( $cloud_templates as $cloud_template ) : ?>
+								<option value="<?php echo esc_attr( (string) $cloud_template->ID ); ?>" <?php selected( (int) $config_values['template_id'], (int) $cloud_template->ID ); ?>>
+									<?php echo esc_html( $cloud_template->post_title ); ?>
+								</option>
+							<?php endforeach; ?>
+						</select>
 					</p>
 
 					<p>
@@ -617,6 +652,7 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
 					<input type="hidden" name="roi_image_label" value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
 					<input type="hidden" name="roi_category_id" value="<?php echo esc_attr( (string) $config_values['category_id'] ); ?>" />
+					<input type="hidden" name="roi_template_id" value="<?php echo esc_attr( (string) $config_values['template_id'] ); ?>" />
 					<input type="hidden" name="roi_import_author" value="<?php echo esc_attr( (string) $config_values['author_id'] ); ?>" />
 					<input type="hidden" name="roi_base_publish_date" value="<?php echo esc_attr( $config_values['base_publish_date'] ); ?>" />
 					<input type="hidden" name="roi_base_publish_time" value="<?php echo esc_attr( $config_values['base_publish_time'] ); ?>" />
@@ -638,17 +674,6 @@ function roi_influencer_importer_render_admin_page() {
 				<?php if ( ! empty( $import_results['failures'] ) ) : ?>
 					<p><strong><?php echo esc_html__( 'Failed rows:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['failures'] ) ); ?></p>
 				<?php endif; ?>
-				<p><strong><?php echo esc_html__( 'Images successfully assigned:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $import_results['images_assigned'] ); ?></p>
-				<p><strong><?php echo esc_html__( 'Images missing:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['missing_images'] ) ); ?></p>
-				<?php if ( ! empty( $import_results['missing_images'] ) ) : ?>
-					<p><strong><?php echo esc_html__( 'Missing Images:', 'roi-influencer-importer' ); ?></strong></p>
-					<ul>
-						<?php foreach ( $import_results['missing_images'] as $missing_image_filename ) : ?>
-							<li><?php echo esc_html( $missing_image_filename ); ?></li>
-						<?php endforeach; ?>
-					</ul>
-				<?php endif; ?>
-				<p><em><?php echo esc_html__( 'Featured image assignment was attempted during import.', 'roi-influencer-importer' ); ?></em></p>
 			</div>
 		<?php endif; ?>
 	</div>
@@ -750,4 +775,71 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 	}
 
 	return 0;
+}
+
+/**
+ * Get ROI Influencers category options in hierarchy order.
+ *
+ * @return array
+ */
+function roi_influencer_importer_get_roi_category_options() {
+	$parent_category = get_category_by_slug( 'roi-influencers' );
+	if ( ! ( $parent_category instanceof WP_Term ) ) {
+		return array();
+	}
+
+	$descendant_categories = get_terms(
+		array(
+			'taxonomy'   => 'category',
+			'hide_empty' => 0,
+			'child_of'   => $parent_category->term_id,
+		)
+	);
+
+	if ( is_wp_error( $descendant_categories ) ) {
+		$descendant_categories = array();
+	}
+
+	$children_map = array();
+	foreach ( $descendant_categories as $descendant_category ) {
+		if ( ! isset( $children_map[ $descendant_category->parent ] ) ) {
+			$children_map[ $descendant_category->parent ] = array();
+		}
+
+		$children_map[ $descendant_category->parent ][] = $descendant_category;
+	}
+
+	$options   = array();
+	$options[] = array(
+		'term_id' => $parent_category->term_id,
+		'name'    => $parent_category->name,
+		'depth'   => 0,
+	);
+
+	$walk_tree = static function( $parent_id, $depth ) use ( &$walk_tree, &$children_map, &$options ) {
+		if ( empty( $children_map[ $parent_id ] ) ) {
+			return;
+		}
+
+		usort(
+			$children_map[ $parent_id ],
+			static function( $term_a, $term_b ) {
+				return strcasecmp( $term_a->name, $term_b->name );
+			}
+		);
+
+		foreach ( $children_map[ $parent_id ] as $child_term ) {
+			$options[] = array(
+				'term_id' => $child_term->term_id,
+				'name'    => $child_term->name,
+				'depth'   => $depth,
+			);
+
+			$walk_tree( $child_term->term_id, $depth + 1 );
+		}
+	};
+
+	$walk_tree( $parent_category->term_id, 1 );
+
+	return $options;
 }
