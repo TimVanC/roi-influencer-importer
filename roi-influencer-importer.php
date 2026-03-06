@@ -46,8 +46,8 @@ function roi_influencer_importer_render_admin_page() {
 		'title_suffix'      => '',
 		'top_content'       => '',
 		'image_label'       => '',
-		'category_id'       => 0,
 		'template_id'       => 0,
+		'category_id'       => 0,
 		'author_id'         => $current_user_id,
 		'base_publish_date' => '',
 		'base_publish_time' => '',
@@ -139,8 +139,8 @@ function roi_influencer_importer_render_admin_page() {
 				$title_prefix                   = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 				$top_content_block              = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 				$image_label                    = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
+				$template_id                    = isset( $_POST['roi_cloud_template_id'] ) ? absint( $_POST['roi_cloud_template_id'] ) : 0;
 				$category_id                    = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
-				$template_id                    = isset( $_POST['roi_template_id'] ) ? absint( $_POST['roi_template_id'] ) : 0;
 				$author_id                      = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 				$base_publish_date              = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
 				$base_publish_time              = isset( $_POST['roi_base_publish_time'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_time'] ) ) : '';
@@ -275,11 +275,11 @@ function roi_influencer_importer_render_admin_page() {
 							wp_set_post_categories( $post_id, array( $category_id ) );
 						}
 
+						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
+
 						if ( $template_id > 0 ) {
 							update_post_meta( $post_id, 'tdb_template_id', $template_id );
 						}
-
-						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
 
 						// Layer 6 image assignment temporarily disabled due to CDN migration issues.
 						// Will re-enable after infrastructure is stable.
@@ -310,8 +310,6 @@ function roi_influencer_importer_render_admin_page() {
 						'total_created'        => $total_successful,
 						'batch_id'             => $batch_id,
 						'failures'             => $failures,
-						'images_assigned'      => $images_assigned,
-						'missing_images'       => $missing_images,
 					);
 
 					$config_notice_type    = 'success';
@@ -335,8 +333,8 @@ function roi_influencer_importer_render_admin_page() {
 			$config_values['title_suffix']      = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 			$config_values['image_label']       = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
+			$config_values['template_id']       = isset( $_POST['roi_cloud_template_id'] ) ? absint( $_POST['roi_cloud_template_id'] ) : 0;
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
-			$config_values['template_id']       = isset( $_POST['roi_template_id'] ) ? absint( $_POST['roi_template_id'] ) : 0;
 			$author_id                          = isset( $_POST['roi_import_author'] ) ? intval( $_POST['roi_import_author'] ) : 0;
 			$config_values['author_id']         = $author_id;
 			$config_values['base_publish_date'] = isset( $_POST['roi_base_publish_date'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_date'] ) ) : '';
@@ -460,6 +458,8 @@ function roi_influencer_importer_render_admin_page() {
 	<div class="wrap">
 		<h1><?php echo esc_html__( 'ROI Influencer Importer', 'roi-influencer-importer' ); ?></h1>
 		<p><?php echo esc_html__( 'Internal CSV importer for ROI Influencers and Power Lists.', 'roi-influencer-importer' ); ?></p>
+		<?php $roi_category_options = roi_influencer_importer_get_roi_influencers_category_options(); ?>
+		<?php $cloud_templates = roi_influencer_importer_get_cloud_templates(); ?>
 
 		<div class="card">
 			<h2><?php echo esc_html__( 'Step 1: Upload CSV', 'roi-influencer-importer' ); ?></h2>
@@ -529,41 +529,21 @@ function roi_influencer_importer_render_admin_page() {
 					</p>
 
 					<p>
-						<label for="roi_category_id"><strong><?php echo esc_html__( 'Select ROI Influencers Category', 'roi-influencer-importer' ); ?></strong></label><br />
-						<?php $roi_category_options = roi_influencer_importer_get_roi_category_options(); ?>
-						<select id="roi_category_id" name="roi_category_id">
-							<option value="0"><?php echo esc_html__( '-- Select ROI Influencers Category --', 'roi-influencer-importer' ); ?></option>
-							<?php foreach ( $roi_category_options as $roi_category_option ) : ?>
-								<?php
-								$category_indent = str_repeat( '— ', (int) $roi_category_option['depth'] );
-								$category_label  = $category_indent . $roi_category_option['name'];
-								?>
-								<option value="<?php echo esc_attr( (string) $roi_category_option['term_id'] ); ?>" <?php selected( (int) $config_values['category_id'], (int) $roi_category_option['term_id'] ); ?>>
-									<?php echo esc_html( $category_label ); ?>
-								</option>
+						<label for="roi_cloud_template_id"><strong><?php echo esc_html__( 'Cloud Template (optional)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<select id="roi_cloud_template_id" name="roi_cloud_template_id">
+							<option value="0"><?php echo esc_html__( '-- No cloud template --', 'roi-influencer-importer' ); ?></option>
+							<?php foreach ( $cloud_templates as $template_option ) : ?>
+								<option value="<?php echo esc_attr( (string) $template_option['id'] ); ?>" <?php selected( (int) $config_values['template_id'], (int) $template_option['id'] ); ?>><?php echo esc_html( $template_option['title'] ); ?></option>
 							<?php endforeach; ?>
 						</select>
 					</p>
 
 					<p>
-						<label for="roi_template_id"><strong><?php echo esc_html__( 'Cloud Template (optional)', 'roi-influencer-importer' ); ?></strong></label><br />
-						<select id="roi_template_id" name="roi_template_id">
-							<option value="0"><?php echo esc_html__( '-- No cloud template --', 'roi-influencer-importer' ); ?></option>
-							<?php
-							$cloud_templates = get_posts(
-								array(
-									'post_type'      => 'tdb_templates',
-									'post_status'    => 'publish',
-									'posts_per_page' => -1,
-									'orderby'        => 'title',
-									'order'          => 'ASC',
-								)
-							);
-							?>
-							<?php foreach ( $cloud_templates as $cloud_template ) : ?>
-								<option value="<?php echo esc_attr( (string) $cloud_template->ID ); ?>" <?php selected( (int) $config_values['template_id'], (int) $cloud_template->ID ); ?>>
-									<?php echo esc_html( $cloud_template->post_title ); ?>
-								</option>
+						<label for="roi_category_id"><strong><?php echo esc_html__( 'Select ROI Influencers Category', 'roi-influencer-importer' ); ?></strong></label><br />
+						<select id="roi_category_id" name="roi_category_id">
+							<option value="0"><?php echo esc_html__( '-- Select ROI Influencers Category --', 'roi-influencer-importer' ); ?></option>
+							<?php foreach ( $roi_category_options as $category_option ) : ?>
+								<option value="<?php echo esc_attr( (string) $category_option['id'] ); ?>" <?php selected( (int) $config_values['category_id'], (int) $category_option['id'] ); ?>><?php echo esc_html( $category_option['label'] ); ?></option>
 							<?php endforeach; ?>
 						</select>
 					</p>
@@ -651,8 +631,8 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_title_suffix" value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
 					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
 					<input type="hidden" name="roi_image_label" value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
+					<input type="hidden" name="roi_cloud_template_id" value="<?php echo esc_attr( (string) $config_values['template_id'] ); ?>" />
 					<input type="hidden" name="roi_category_id" value="<?php echo esc_attr( (string) $config_values['category_id'] ); ?>" />
-					<input type="hidden" name="roi_template_id" value="<?php echo esc_attr( (string) $config_values['template_id'] ); ?>" />
 					<input type="hidden" name="roi_import_author" value="<?php echo esc_attr( (string) $config_values['author_id'] ); ?>" />
 					<input type="hidden" name="roi_base_publish_date" value="<?php echo esc_attr( $config_values['base_publish_date'] ); ?>" />
 					<input type="hidden" name="roi_base_publish_time" value="<?php echo esc_attr( $config_values['base_publish_time'] ); ?>" />
@@ -778,68 +758,91 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 }
 
 /**
- * Get ROI Influencers category options in hierarchy order.
+ * Get cloud template options from TagDiv templates.
  *
  * @return array
  */
-function roi_influencer_importer_get_roi_category_options() {
-	$parent_category = get_category_by_slug( 'roi-influencers' );
-	if ( ! ( $parent_category instanceof WP_Term ) ) {
-		return array();
-	}
-
-	$descendant_categories = get_terms(
+function roi_influencer_importer_get_cloud_templates() {
+	$template_posts = get_posts(
 		array(
-			'taxonomy'   => 'category',
-			'hide_empty' => 0,
-			'child_of'   => $parent_category->term_id,
+			'post_type'      => 'tdb_templates',
+			'post_status'    => array( 'publish', 'private' ),
+			'orderby'        => 'title',
+			'order'          => 'ASC',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
 		)
 	);
 
-	if ( is_wp_error( $descendant_categories ) ) {
-		$descendant_categories = array();
+	$options = array();
+	foreach ( $template_posts as $template_id ) {
+		$options[] = array(
+			'id'    => (int) $template_id,
+			'title' => get_the_title( $template_id ),
+		);
 	}
 
-	$children_map = array();
-	foreach ( $descendant_categories as $descendant_category ) {
-		if ( ! isset( $children_map[ $descendant_category->parent ] ) ) {
-			$children_map[ $descendant_category->parent ] = array();
-		}
+	return $options;
+}
 
-		$children_map[ $descendant_category->parent ][] = $descendant_category;
+/**
+ * Build ROI Influencers category options with hierarchy.
+ *
+ * @return array
+ */
+function roi_influencer_importer_get_roi_influencers_category_options() {
+	$parent_term = get_category_by_slug( 'roi-influencers' );
+	if ( ! ( $parent_term instanceof WP_Term ) ) {
+		return array();
 	}
 
-	$options   = array();
-	$options[] = array(
-		'term_id' => $parent_category->term_id,
-		'name'    => $parent_category->name,
-		'depth'   => 0,
+	$options = array(
+		array(
+			'id'    => (int) $parent_term->term_id,
+			'label' => $parent_term->name,
+		),
 	);
 
-	$walk_tree = static function( $parent_id, $depth ) use ( &$walk_tree, &$children_map, &$options ) {
-		if ( empty( $children_map[ $parent_id ] ) ) {
-			return;
-		}
+	$child_options = roi_influencer_importer_get_category_children_options( (int) $parent_term->term_id, 1 );
+	return array_merge( $options, $child_options );
+}
 
-		usort(
-			$children_map[ $parent_id ],
-			static function( $term_a, $term_b ) {
-				return strcasecmp( $term_a->name, $term_b->name );
-			}
+/**
+ * Recursively build child category options.
+ *
+ * @param int $parent_id Parent term ID.
+ * @param int $depth     Current depth.
+ *
+ * @return array
+ */
+function roi_influencer_importer_get_category_children_options( $parent_id, $depth ) {
+	$children = get_terms(
+		array(
+			'taxonomy'   => 'category',
+			'hide_empty' => false,
+			'parent'     => (int) $parent_id,
+			'orderby'    => 'name',
+			'order'      => 'ASC',
+		)
+	);
+
+	if ( is_wp_error( $children ) || empty( $children ) ) {
+		return array();
+	}
+
+	$options = array();
+	foreach ( $children as $child ) {
+		$label_prefix = str_repeat( '-- ', (int) $depth );
+		$options[]    = array(
+			'id'    => (int) $child->term_id,
+			'label' => $label_prefix . $child->name,
 		);
 
-		foreach ( $children_map[ $parent_id ] as $child_term ) {
-			$options[] = array(
-				'term_id' => $child_term->term_id,
-				'name'    => $child_term->name,
-				'depth'   => $depth,
-			);
-
-			$walk_tree( $child_term->term_id, $depth + 1 );
+		$grandchildren = roi_influencer_importer_get_category_children_options( (int) $child->term_id, $depth + 1 );
+		if ( ! empty( $grandchildren ) ) {
+			$options = array_merge( $options, $grandchildren );
 		}
-	};
-
-	$walk_tree( $parent_category->term_id, 1 );
+	}
 
 	return $options;
 }
