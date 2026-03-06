@@ -199,8 +199,9 @@ function roi_influencer_importer_render_admin_page() {
 					$selected_status = 'draft';
 				}
 
-				$base_timestamp = strtotime( $base_publish_date . ' ' . $base_publish_time );
-				if ( false === $base_timestamp ) {
+				$site_timezone = wp_timezone();
+				$base_datetime = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $base_publish_date . ' ' . $base_publish_time, $site_timezone );
+				if ( false === $base_datetime ) {
 					$validation_errors[] = __( 'Base date/time is invalid.', 'roi-influencer-importer' );
 				}
 
@@ -256,10 +257,9 @@ function roi_influencer_importer_render_admin_page() {
 						$content .= '</p>';
 						$content .= wp_kses_post( $row_data['writeup'] );
 
-						$timestamp     = (int) $base_timestamp + ( (int) $spacing_interval * 60 * (int) $row_index );
-						$post_date     = wp_date( 'Y-m-d H:i:s', $timestamp );
-						$post_date_gmt = get_gmt_from_date( $post_date );
-						$post_status   = ( 'publish' === $selected_status ) ? 'publish' : 'draft';
+						$offset_minutes   = (int) $spacing_interval * (int) $row_index;
+						$scheduled_date   = $base_datetime->modify( '+' . $offset_minutes . ' minutes' )->format( 'Y-m-d H:i:s' );
+						$post_status      = ( 'publish' === $selected_status ) ? 'publish' : 'draft';
 
 						$post_id = wp_insert_post(
 							array(
@@ -267,8 +267,7 @@ function roi_influencer_importer_render_admin_page() {
 								'post_content'  => $content,
 								'post_author'   => $author_id,
 								'post_status'   => $post_status,
-								'post_date'     => $post_date,
-								'post_date_gmt' => $post_date_gmt,
+								'post_date'     => $scheduled_date,
 							),
 							true
 						);
@@ -415,8 +414,9 @@ function roi_influencer_importer_render_admin_page() {
 				$validation_errors[] = __( 'CSV must include a fullname column.', 'roi-influencer-importer' );
 			}
 
-			$base_timestamp = strtotime( $config_values['base_publish_date'] . ' ' . $config_values['base_publish_time'] );
-			if ( false === $base_timestamp ) {
+			$site_timezone = wp_timezone();
+			$base_datetime = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $config_values['base_publish_date'] . ' ' . $config_values['base_publish_time'], $site_timezone );
+			if ( false === $base_datetime ) {
 				$validation_errors[] = __( 'Base date/time is invalid.', 'roi-influencer-importer' );
 			}
 
@@ -437,7 +437,7 @@ function roi_influencer_importer_render_admin_page() {
 					$fullname   = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
 					$title      = rtrim( $config_values['title_suffix'] ) . ' ' . $fullname;
 					$offset     = (int) $config_values['spacing_interval'] * (int) $row_index;
-					$timestamp  = strtotime( '+' . $offset . ' minutes', $base_timestamp );
+					$timestamp  = $base_datetime->modify( '+' . $offset . ' minutes' )->getTimestamp();
 
 					$computed_items[] = array(
 						'title'            => $title,
