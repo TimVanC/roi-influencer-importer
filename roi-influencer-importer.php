@@ -283,7 +283,15 @@ function roi_influencer_importer_render_admin_page() {
 						}
 
 						if ( $template_id > 0 ) {
-							update_post_meta( $post_id, 'tdb_post_template', $template_id );
+							$settings = array(
+								'td_post_template' => 'tdb_template_' . $template_id,
+							);
+
+							update_post_meta(
+								$post_id,
+								'td_post_theme_settings',
+								$settings
+							);
 						}
 
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
