@@ -205,9 +205,9 @@ function roi_influencer_importer_render_admin_page() {
 				}
 
 				if ( empty( $validation_errors ) ) {
-					$sorted_rows = $preview_data['rows'];
+					$rows = $preview_data['rows'];
 					usort(
-						$sorted_rows,
+						$rows,
 						static function( $row_a, $row_b ) use ( $last_name_index ) {
 							$last_a = isset( $row_a[ $last_name_index ] ) ? (string) $row_a[ $last_name_index ] : '';
 							$last_b = isset( $row_b[ $last_name_index ] ) ? (string) $row_b[ $last_name_index ] : '';
@@ -221,8 +221,15 @@ function roi_influencer_importer_render_admin_page() {
 					$failures         = array();
 					$missing_images   = array();
 					$images_assigned  = 0;
+					$total_rows       = count( $rows );
+					$max_posts_reached = false;
 
-					foreach ( $sorted_rows as $row_index => $row ) {
+					foreach ( $rows as $row_index => $row ) {
+						if ( $total_rows > 0 && $total_attempted >= $total_rows ) {
+							$max_posts_reached = true;
+							break;
+						}
+
 						++$total_attempted;
 
 						$row_data = array(
@@ -276,7 +283,8 @@ function roi_influencer_importer_render_admin_page() {
 						}
 
 						if ( $template_id > 0 ) {
-							update_post_meta( $post_id, 'tdb_template_id', $template_id );
+							$template_value = 'tdb_template_' . $template_id;
+							update_post_meta( $post_id, 'tdb_post_template', $template_value );
 						}
 
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
@@ -298,6 +306,11 @@ function roi_influencer_importer_render_admin_page() {
 						++$total_successful;
 					}
 
+					if ( $max_posts_reached ) {
+						$config_notice_type    = 'error';
+						$config_notice_message = __( 'Safety check triggered: attempted to create more posts than CSV rows. Import stopped.', 'roi-influencer-importer' );
+					}
+
 					if ( $total_successful > 0 ) {
 						delete_transient( 'roi_import_preview' );
 					}
@@ -311,8 +324,10 @@ function roi_influencer_importer_render_admin_page() {
 						'missing_images'       => $missing_images,
 					);
 
-					$config_notice_type    = 'success';
-					$config_notice_message = __( 'Import completed. Review Step 4 for results.', 'roi-influencer-importer' );
+					if ( ! $max_posts_reached ) {
+						$config_notice_type    = 'success';
+						$config_notice_message = __( 'Import completed. Review Step 4 for results.', 'roi-influencer-importer' );
+					}
 				} else {
 					$config_notice_type    = 'error';
 					$config_notice_message = implode( ' ', $validation_errors );
@@ -410,6 +425,7 @@ function roi_influencer_importer_render_admin_page() {
 				);
 
 				$computed_items = array();
+				// Preview-only loop: computes display data and never creates posts.
 				foreach ( $sorted_rows as $row_index => $row ) {
 					$fullname   = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
 					$title      = rtrim( $config_values['title_suffix'] ) . ' ' . $fullname;
@@ -812,3 +828,4 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 
 	return 0;
 }
+
