@@ -57,7 +57,7 @@ function roi_influencer_importer_render_admin_page() {
 		'post_status'      => 'draft',
 	);
 
-	$stored_preview_data = get_transient( 'roi_import_preview' );
+	$stored_preview_data = roi_influencer_importer_get_preview_data();
 	if ( is_array( $stored_preview_data ) ) {
 		$preview_data = array(
 			'headers'   => isset( $stored_preview_data['headers'] ) && is_array( $stored_preview_data['headers'] ) ? $stored_preview_data['headers'] : array(),
@@ -114,7 +114,7 @@ function roi_influencer_importer_render_admin_page() {
 							'rows'      => $parsed_rows,
 						);
 
-						set_transient( 'roi_import_preview', $preview_data, 5 * MINUTE_IN_SECONDS );
+						roi_influencer_importer_set_preview_data( $preview_data );
 						delete_transient( 'roi_import_run_state' );
 
 						$notice_type    = 'success';
@@ -149,11 +149,12 @@ function roi_influencer_importer_render_admin_page() {
 				@set_time_limit( 300 );
 			}
 
-			$preview_data = get_transient( 'roi_import_preview' );
+			$preview_data = roi_influencer_importer_get_preview_data();
 			if ( ! is_array( $preview_data ) || ! isset( $preview_data['headers'], $preview_data['rows'] ) || ! is_array( $preview_data['headers'] ) || ! is_array( $preview_data['rows'] ) ) {
 				$config_notice_type    = 'error';
 				$config_notice_message = __( 'CSV preview data is missing or expired. Please upload the CSV again.', 'roi-influencer-importer' );
 			} else {
+				roi_influencer_importer_set_preview_data( $preview_data );
 				$title_prefix                   = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
 				$include_rank_in_title          = isset( $_POST['roi_include_rank_in_title'] ) ? absint( $_POST['roi_include_rank_in_title'] ) : 0;
 				$top_content_block              = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
@@ -428,7 +429,7 @@ function roi_influencer_importer_render_admin_page() {
 					} else {
 						delete_transient( $import_state_key );
 						if ( $total_successful > 0 ) {
-							delete_transient( 'roi_import_preview' );
+							roi_influencer_importer_delete_preview_data();
 						}
 
 						$import_results = array(
@@ -510,8 +511,11 @@ function roi_influencer_importer_render_admin_page() {
 				$validation_errors[] = __( 'Base Publish Time is required.', 'roi-influencer-importer' );
 			}
 
-			if ( ! is_array( $preview_data ) || ! isset( $preview_data['headers'], $preview_data['rows'] ) || ! is_array( $preview_data['headers'] ) || ! is_array( $preview_data['rows'] ) ) {
+			$has_preview_data = is_array( $preview_data ) && isset( $preview_data['headers'], $preview_data['rows'] ) && is_array( $preview_data['headers'] ) && is_array( $preview_data['rows'] );
+			if ( ! $has_preview_data ) {
 				$validation_errors[] = __( 'CSV preview data is missing or expired. Please upload the CSV again.', 'roi-influencer-importer' );
+			} else {
+				roi_influencer_importer_set_preview_data( $preview_data );
 			}
 
 			$last_name_index  = false;
@@ -523,11 +527,11 @@ function roi_influencer_importer_render_admin_page() {
 				$rank_index      = roi_influencer_importer_find_header_index( $preview_data['headers'], 'rank' );
 			}
 
-			if ( false === $last_name_index ) {
+			if ( $has_preview_data && false === $last_name_index ) {
 				$validation_errors[] = __( 'CSV must include a lastname column.', 'roi-influencer-importer' );
 			}
 
-			if ( false === $full_name_index ) {
+			if ( $has_preview_data && false === $full_name_index ) {
 				$validation_errors[] = __( 'CSV must include a fullname column.', 'roi-influencer-importer' );
 			}
 
@@ -677,6 +681,8 @@ function roi_influencer_importer_render_admin_page() {
 
 					<p>
 						<label for="roi_category_id"><strong><?php echo esc_html__( 'Category', 'roi-influencer-importer' ); ?></strong></label><br />
+						<input type="text" id="roi_category_search" class="regular-text" placeholder="<?php echo esc_attr__( 'Search categories...', 'roi-influencer-importer' ); ?>" />
+						<br />
 						<?php
 						$roi_parent_category = get_term_by( 'slug', 'roi-influencers', 'category' );
 						$roi_child_terms     = array();
@@ -720,7 +726,7 @@ function roi_influencer_importer_render_admin_page() {
 							}
 						};
 						?>
-						<select id="roi_category_id" name="roi_category_id">
+						<select id="roi_category_id" name="roi_category_id" data-search-input="roi_category_search">
 							<option value=""><?php echo esc_html__( '-- Select a category --', 'roi-influencer-importer' ); ?></option>
 							<?php if ( $roi_parent_category instanceof WP_Term ) : ?>
 								<option value="<?php echo esc_attr( (string) $roi_parent_category->term_id ); ?>" <?php selected( (int) $config_values['category_id'], (int) $roi_parent_category->term_id ); ?>><?php echo esc_html( $roi_parent_category->name ); ?></option>
@@ -750,6 +756,8 @@ function roi_influencer_importer_render_admin_page() {
 
 					<p>
 						<label for="roi_template_id"><strong><?php echo esc_html__( 'Cloud Template (optional)', 'roi-influencer-importer' ); ?></strong></label><br />
+						<input type="text" id="roi_template_search" class="regular-text" placeholder="<?php echo esc_attr__( 'Search cloud templates...', 'roi-influencer-importer' ); ?>" />
+						<br />
 						<?php
 						$templates = get_posts(
 							array(
@@ -758,7 +766,7 @@ function roi_influencer_importer_render_admin_page() {
 							)
 						);
 						?>
-						<select id="roi_template_id" name="roi_template_id">
+						<select id="roi_template_id" name="roi_template_id" data-search-input="roi_template_search">
 							<option value=""><?php echo esc_html__( 'None', 'roi-influencer-importer' ); ?></option>
 							<?php foreach ( $templates as $template ) : ?>
 								<option value="<?php echo esc_attr( (string) $template->ID ); ?>" <?php selected( (int) $config_values['template_id'], (int) $template->ID ); ?>><?php echo esc_html( $template->post_title ); ?></option>
@@ -900,6 +908,34 @@ function roi_influencer_importer_render_admin_page() {
 				<p><strong><?php echo esc_html__( 'Images missing:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) count( $import_results['missing_images'] ) ); ?></p>
 			</div>
 		<?php endif; ?>
+		<script>
+			document.addEventListener('DOMContentLoaded', function () {
+				var searchableSelects = document.querySelectorAll('select[data-search-input]');
+
+				searchableSelects.forEach(function (selectEl) {
+					var inputId = selectEl.getAttribute('data-search-input');
+					var searchInput = inputId ? document.getElementById(inputId) : null;
+					if (!searchInput) {
+						return;
+					}
+
+					searchInput.addEventListener('input', function () {
+						var query = searchInput.value.toLowerCase().trim();
+						var options = selectEl.querySelectorAll('option');
+
+						options.forEach(function (optionEl, optionIndex) {
+							if (optionIndex === 0) {
+								optionEl.hidden = false;
+								return;
+							}
+
+							var optionText = optionEl.textContent.toLowerCase();
+							optionEl.hidden = query !== '' && optionText.indexOf(query) === -1;
+						});
+					});
+				});
+			});
+		</script>
 	</div>
 	<?php
 }
@@ -1000,5 +1036,69 @@ function roi_influencer_importer_find_attachment_id_by_filename( $raw_filename )
 	}
 
 	return 0;
+}
+
+/**
+ * Store preview data with transient and user-meta fallback.
+ *
+ * @param array $preview_data Preview payload.
+ *
+ * @return void
+ */
+function roi_influencer_importer_set_preview_data( $preview_data ) {
+	$ttl_seconds  = 30 * MINUTE_IN_SECONDS;
+	$current_user = get_current_user_id();
+
+	set_transient( 'roi_import_preview', $preview_data, $ttl_seconds );
+	if ( $current_user > 0 ) {
+		update_user_meta( $current_user, 'roi_import_preview_data', $preview_data );
+		update_user_meta( $current_user, 'roi_import_preview_expires', time() + $ttl_seconds );
+	}
+}
+
+/**
+ * Read preview data with user-meta fallback when transient is missing.
+ *
+ * @return array|null
+ */
+function roi_influencer_importer_get_preview_data() {
+	$preview_data = get_transient( 'roi_import_preview' );
+	if ( is_array( $preview_data ) ) {
+		return $preview_data;
+	}
+
+	$current_user = get_current_user_id();
+	if ( $current_user <= 0 ) {
+		return null;
+	}
+
+	$expires_at = (int) get_user_meta( $current_user, 'roi_import_preview_expires', true );
+	if ( $expires_at <= time() ) {
+		roi_influencer_importer_delete_preview_data();
+		return null;
+	}
+
+	$fallback_data = get_user_meta( $current_user, 'roi_import_preview_data', true );
+	if ( is_array( $fallback_data ) ) {
+		set_transient( 'roi_import_preview', $fallback_data, max( 1, $expires_at - time() ) );
+		return $fallback_data;
+	}
+
+	return null;
+}
+
+/**
+ * Clear preview data from transient and user meta.
+ *
+ * @return void
+ */
+function roi_influencer_importer_delete_preview_data() {
+	$current_user = get_current_user_id();
+
+	delete_transient( 'roi_import_preview' );
+	if ( $current_user > 0 ) {
+		delete_user_meta( $current_user, 'roi_import_preview_data' );
+		delete_user_meta( $current_user, 'roi_import_preview_expires' );
+	}
 }
 
