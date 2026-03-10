@@ -44,6 +44,7 @@ function roi_influencer_importer_render_admin_page() {
 	$current_user_id        = get_current_user_id();
 	$config_values          = array(
 		'title_suffix'      => '',
+		'include_rank_in_title' => 0,
 		'top_content'       => '',
 		'image_label'       => '',
 		'category_id'       => 0,
@@ -125,18 +126,34 @@ function roi_influencer_importer_render_admin_page() {
 
 	if ( isset( $_POST['roi_run_import_submit'] ) ) {
 		$show_config_form = true;
+		$import_lock_key      = 'roi_import_run_lock';
+		$import_lock_acquired = false;
 
 		$run_import_nonce = isset( $_POST['roi_run_import_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_run_import_nonce'] ) ) : '';
 		if ( empty( $run_import_nonce ) || ! wp_verify_nonce( $run_import_nonce, 'roi_run_import_action' ) ) {
 			$config_notice_type    = 'error';
 			$config_notice_message = __( 'Security check failed for import run. Please try again.', 'roi-influencer-importer' );
+		} elseif ( false !== get_transient( $import_lock_key ) ) {
+			$config_notice_type    = 'error';
+			$config_notice_message = __( 'An import is already running. Please wait a minute and try again.', 'roi-influencer-importer' );
 		} else {
+			set_transient( $import_lock_key, 1, 10 * MINUTE_IN_SECONDS );
+			$import_lock_acquired = true;
+
+			if ( function_exists( 'ignore_user_abort' ) ) {
+				ignore_user_abort( true );
+			}
+			if ( function_exists( 'set_time_limit' ) ) {
+				@set_time_limit( 300 );
+			}
+
 			$preview_data = get_transient( 'roi_import_preview' );
 			if ( ! is_array( $preview_data ) || ! isset( $preview_data['headers'], $preview_data['rows'] ) || ! is_array( $preview_data['headers'] ) || ! is_array( $preview_data['rows'] ) ) {
 				$config_notice_type    = 'error';
 				$config_notice_message = __( 'CSV preview data is missing or expired. Please upload the CSV again.', 'roi-influencer-importer' );
 			} else {
 				$title_prefix                   = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
+				$include_rank_in_title          = isset( $_POST['roi_include_rank_in_title'] ) ? absint( $_POST['roi_include_rank_in_title'] ) : 0;
 				$top_content_block              = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 				$image_label                    = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 				$category_id                    = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
@@ -167,6 +184,7 @@ function roi_influencer_importer_render_admin_page() {
 				$last_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
 				$first_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'firstname' );
 				$full_name_index  = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
+				$rank_index       = roi_influencer_importer_find_header_index( $preview_data['headers'], 'rank' );
 				$title_index      = roi_influencer_importer_find_header_index( $preview_data['headers'], 'title' );
 				$company_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'company' );
 				$writeup_index    = roi_influencer_importer_find_header_index( $preview_data['headers'], 'writeup' );
@@ -237,6 +255,7 @@ function roi_influencer_importer_render_admin_page() {
 							'lastname'  => isset( $row[ $last_name_index ] ) ? (string) $row[ $last_name_index ] : '',
 							'firstname' => ( false !== $first_name_index && isset( $row[ $first_name_index ] ) ) ? (string) $row[ $first_name_index ] : '',
 							'fullname'  => ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '',
+							'rank'      => ( false !== $rank_index && isset( $row[ $rank_index ] ) ) ? trim( (string) $row[ $rank_index ] ) : '',
 							'title'     => ( false !== $title_index && isset( $row[ $title_index ] ) ) ? (string) $row[ $title_index ] : '',
 							'company'   => ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '',
 							'writeup'   => ( false !== $writeup_index && isset( $row[ $writeup_index ] ) ) ? (string) $row[ $writeup_index ] : '',
@@ -245,6 +264,9 @@ function roi_influencer_importer_render_admin_page() {
 						$raw_filename = $row_data['lastname'] . ', ' . $row_data['firstname'] . ' - ' . $image_label;
 
 						$title = rtrim( $title_prefix ) . ' ' . $row_data['fullname'];
+						if ( 1 === (int) $include_rank_in_title && '' !== $row_data['rank'] ) {
+							$title = rtrim( $title_prefix ) . ' No. ' . $row_data['rank'] . ' ' . $row_data['fullname'];
+						}
 
 						$content = '';
 						if ( ! empty( $top_content_block ) ) {
@@ -260,6 +282,22 @@ function roi_influencer_importer_render_admin_page() {
 						$offset_minutes   = (int) $spacing_interval * (int) $row_index;
 						$scheduled_date   = $base_datetime->modify( '+' . $offset_minutes . ' minutes' )->format( 'Y-m-d H:i:s' );
 						$post_status      = ( 'publish' === $selected_status ) ? 'publish' : 'draft';
+						$row_fingerprint  = md5( strtolower( trim( (string) $title_prefix ) ) . '|' . strtolower( trim( (string) $row_data['fullname'] ) ) . '|' . $scheduled_date );
+
+						$existing_post = get_posts(
+							array(
+								'post_type'      => 'post',
+								'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private' ),
+								'posts_per_page' => 1,
+								'fields'         => 'ids',
+								'meta_key'       => 'roi_import_row_fingerprint',
+								'meta_value'     => $row_fingerprint,
+							)
+						);
+
+						if ( ! empty( $existing_post ) ) {
+							continue;
+						}
 
 						$post_id = wp_insert_post(
 							array(
@@ -294,6 +332,7 @@ function roi_influencer_importer_render_admin_page() {
 						}
 
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
+						update_post_meta( $post_id, 'roi_import_row_fingerprint', $row_fingerprint );
 
 						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
 						if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
@@ -340,6 +379,10 @@ function roi_influencer_importer_render_admin_page() {
 				}
 			}
 		}
+
+		if ( $import_lock_acquired ) {
+			delete_transient( $import_lock_key );
+		}
 	}
 
 	if ( isset( $_POST['roi_import_config_submit'] ) ) {
@@ -351,6 +394,7 @@ function roi_influencer_importer_render_admin_page() {
 			$config_notice_message = __( 'Security check failed for import configuration. Please try again.', 'roi-influencer-importer' );
 		} else {
 			$config_values['title_suffix']      = isset( $_POST['roi_title_suffix'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_title_suffix'] ) ) : '';
+			$config_values['include_rank_in_title'] = isset( $_POST['roi_include_rank_in_title'] ) ? 1 : 0;
 			$config_values['top_content']       = isset( $_POST['roi_top_content_block'] ) ? sanitize_textarea_field( wp_unslash( $_POST['roi_top_content_block'] ) ) : '';
 			$config_values['image_label']       = isset( $_POST['roi_image_label'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_image_label'] ) ) : '';
 			$config_values['category_id']       = isset( $_POST['roi_category_id'] ) ? absint( $_POST['roi_category_id'] ) : 0;
@@ -401,9 +445,11 @@ function roi_influencer_importer_render_admin_page() {
 
 			$last_name_index  = false;
 			$full_name_index  = false;
+			$rank_index       = false;
 			if ( is_array( $preview_data ) && isset( $preview_data['headers'] ) && is_array( $preview_data['headers'] ) ) {
 				$last_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'lastname' );
 				$full_name_index = roi_influencer_importer_find_header_index( $preview_data['headers'], 'fullname' );
+				$rank_index      = roi_influencer_importer_find_header_index( $preview_data['headers'], 'rank' );
 			}
 
 			if ( false === $last_name_index ) {
@@ -435,7 +481,11 @@ function roi_influencer_importer_render_admin_page() {
 				// Preview-only loop: computes display data and never creates posts.
 				foreach ( $sorted_rows as $row_index => $row ) {
 					$fullname   = ( false !== $full_name_index && isset( $row[ $full_name_index ] ) ) ? (string) $row[ $full_name_index ] : '';
+					$rank_value = ( false !== $rank_index && isset( $row[ $rank_index ] ) ) ? trim( (string) $row[ $rank_index ] ) : '';
 					$title      = rtrim( $config_values['title_suffix'] ) . ' ' . $fullname;
+					if ( 1 === (int) $config_values['include_rank_in_title'] && '' !== $rank_value ) {
+						$title = rtrim( $config_values['title_suffix'] ) . ' No. ' . $rank_value . ' ' . $fullname;
+					}
 					$offset     = (int) $config_values['spacing_interval'] * (int) $row_index;
 					$timestamp  = $base_datetime->modify( '+' . $offset . ' minutes' )->getTimestamp();
 
@@ -534,6 +584,12 @@ function roi_influencer_importer_render_admin_page() {
 					<p>
 						<label for="roi_title_suffix"><strong><?php echo esc_html__( 'Title Prefix (required)', 'roi-influencer-importer' ); ?></strong></label><br />
 						<input type="text" id="roi_title_suffix" name="roi_title_suffix" class="regular-text" required value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
+					</p>
+					<p>
+						<label for="roi_include_rank_in_title">
+							<input type="checkbox" id="roi_include_rank_in_title" name="roi_include_rank_in_title" value="1" <?php checked( (int) $config_values['include_rank_in_title'], 1 ); ?> />
+							<strong><?php echo esc_html__( 'Include Rank in Title', 'roi-influencer-importer' ); ?></strong>
+						</label>
 					</p>
 
 					<p>
@@ -705,6 +761,7 @@ function roi_influencer_importer_render_admin_page() {
 				<form method="post">
 					<?php wp_nonce_field( 'roi_run_import_action', 'roi_run_import_nonce' ); ?>
 					<input type="hidden" name="roi_title_suffix" value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
+					<input type="hidden" name="roi_include_rank_in_title" value="<?php echo esc_attr( (string) $config_values['include_rank_in_title'] ); ?>" />
 					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
 					<input type="hidden" name="roi_image_label" value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
 					<input type="hidden" name="roi_category_id" value="<?php echo esc_attr( (string) $config_values['category_id'] ); ?>" />
