@@ -41,6 +41,7 @@ function roi_influencer_importer_render_admin_page() {
 	$config_notice_message  = '';
 	$computed_preview       = null;
 	$import_results         = null;
+	$chunk_progress         = null;
 	$current_user_id        = get_current_user_id();
 	$config_values          = array(
 		'title_suffix'      => '',
@@ -114,6 +115,7 @@ function roi_influencer_importer_render_admin_page() {
 						);
 
 						set_transient( 'roi_import_preview', $preview_data, 5 * MINUTE_IN_SECONDS );
+						delete_transient( 'roi_import_run_state' );
 
 						$notice_type    = 'success';
 						$notice_message = __( 'CSV uploaded successfully. Preview generated below.', 'roi-influencer-importer' );
@@ -163,6 +165,17 @@ function roi_influencer_importer_render_admin_page() {
 				$base_publish_time              = isset( $_POST['roi_base_publish_time'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_base_publish_time'] ) ) : '';
 				$spacing_interval               = isset( $_POST['roi_spacing_interval'] ) ? absint( $_POST['roi_spacing_interval'] ) : 5;
 				$selected_status                = isset( $_POST['roi_post_status'] ) ? sanitize_key( wp_unslash( $_POST['roi_post_status'] ) ) : 'draft';
+				$config_values['title_suffix'] = $title_prefix;
+				$config_values['include_rank_in_title'] = $include_rank_in_title;
+				$config_values['top_content'] = $top_content_block;
+				$config_values['image_label'] = $image_label;
+				$config_values['category_id'] = $category_id;
+				$config_values['template_id'] = $template_id;
+				$config_values['author_id'] = $author_id;
+				$config_values['base_publish_date'] = $base_publish_date;
+				$config_values['base_publish_time'] = $base_publish_time;
+				$config_values['spacing_interval'] = $spacing_interval;
+				$config_values['post_status'] = $selected_status;
 
 				$validation_errors = array();
 
@@ -234,21 +247,57 @@ function roi_influencer_importer_render_admin_page() {
 						}
 					);
 
-					$batch_id         = 'roi_batch_' . time();
-					$total_attempted  = 0;
-					$total_successful = 0;
-					$failures         = array();
-					$missing_images   = array();
-					$images_assigned  = 0;
-					$total_rows       = count( $rows );
-					$max_posts_reached = false;
+					$total_rows          = count( $rows );
+					$chunk_size          = 20;
+					$import_state_key    = 'roi_import_run_state';
+					$config_signature    = md5(
+						wp_json_encode(
+							array(
+								'title_prefix'          => $title_prefix,
+								'include_rank_in_title' => (int) $include_rank_in_title,
+								'top_content_block'     => $top_content_block,
+								'image_label'           => $image_label,
+								'category_id'           => (int) $category_id,
+								'template_id'           => (int) $template_id,
+								'author_id'             => (int) $author_id,
+								'base_publish_date'     => $base_publish_date,
+								'base_publish_time'     => $base_publish_time,
+								'spacing_interval'      => (int) $spacing_interval,
+								'selected_status'       => $selected_status,
+								'total_rows'            => (int) $total_rows,
+							)
+						)
+					);
+					$import_state = get_transient( $import_state_key );
 
-					foreach ( $rows as $row_index => $row ) {
-						if ( $total_rows > 0 && $total_attempted >= $total_rows ) {
-							$max_posts_reached = true;
-							break;
-						}
+					if (
+						! is_array( $import_state ) ||
+						! isset( $import_state['config_signature'] ) ||
+						$config_signature !== (string) $import_state['config_signature']
+					) {
+						$import_state = array(
+							'config_signature' => $config_signature,
+							'batch_id'         => 'roi_batch_' . time(),
+							'offset'           => 0,
+							'total_attempted'  => 0,
+							'total_successful' => 0,
+							'failures'         => array(),
+							'missing_images'   => array(),
+							'images_assigned'  => 0,
+						);
+					}
 
+					$batch_id          = (string) $import_state['batch_id'];
+					$total_attempted   = (int) $import_state['total_attempted'];
+					$total_successful  = (int) $import_state['total_successful'];
+					$failures          = is_array( $import_state['failures'] ) ? $import_state['failures'] : array();
+					$missing_images    = is_array( $import_state['missing_images'] ) ? $import_state['missing_images'] : array();
+					$images_assigned   = (int) $import_state['images_assigned'];
+					$offset            = max( 0, min( (int) $import_state['offset'], $total_rows ) );
+					$chunk_rows        = array_slice( $rows, $offset, $chunk_size, true );
+					$processed_in_chunk = count( $chunk_rows );
+
+					foreach ( $chunk_rows as $row_index => $row ) {
 						++$total_attempted;
 
 						$row_data = array(
@@ -351,25 +400,46 @@ function roi_influencer_importer_render_admin_page() {
 						++$total_successful;
 					}
 
-					if ( $max_posts_reached ) {
-						$config_notice_type    = 'error';
-						$config_notice_message = __( 'Safety check triggered: attempted to create more posts than CSV rows. Import stopped.', 'roi-influencer-importer' );
-					}
+					$offset += $processed_in_chunk;
+					if ( $offset < $total_rows ) {
+						$import_state = array(
+							'config_signature' => $config_signature,
+							'batch_id'         => $batch_id,
+							'offset'           => $offset,
+							'total_attempted'  => $total_attempted,
+							'total_successful' => $total_successful,
+							'failures'         => $failures,
+							'missing_images'   => $missing_images,
+							'images_assigned'  => $images_assigned,
+						);
+						set_transient( $import_state_key, $import_state, 30 * MINUTE_IN_SECONDS );
 
-					if ( $total_successful > 0 ) {
-						delete_transient( 'roi_import_preview' );
-					}
+						$chunk_progress = array(
+							'processed' => $offset,
+							'total'     => $total_rows,
+						);
+						$config_notice_type    = 'success';
+						$config_notice_message = sprintf(
+							/* translators: 1: processed rows, 2: total rows */
+							__( 'Import in progress: %1$d of %2$d rows processed. Continue import to finish.', 'roi-influencer-importer' ),
+							(int) $offset,
+							(int) $total_rows
+						);
+					} else {
+						delete_transient( $import_state_key );
+						if ( $total_successful > 0 ) {
+							delete_transient( 'roi_import_preview' );
+						}
 
-					$import_results = array(
-						'total_rows_processed' => $total_attempted,
-						'total_created'        => $total_successful,
-						'batch_id'             => $batch_id,
-						'failures'             => $failures,
-						'images_assigned'      => $images_assigned,
-						'missing_images'       => $missing_images,
-					);
+						$import_results = array(
+							'total_rows_processed' => $total_attempted,
+							'total_created'        => $total_successful,
+							'batch_id'             => $batch_id,
+							'failures'             => $failures,
+							'images_assigned'      => $images_assigned,
+							'missing_images'       => $missing_images,
+						);
 
-					if ( ! $max_posts_reached ) {
 						$config_notice_type    = 'success';
 						$config_notice_message = __( 'Import completed. Review Step 4 for results.', 'roi-influencer-importer' );
 					}
@@ -387,6 +457,7 @@ function roi_influencer_importer_render_admin_page() {
 
 	if ( isset( $_POST['roi_import_config_submit'] ) ) {
 		$show_config_form = true;
+		delete_transient( 'roi_import_run_state' );
 
 		$config_nonce = isset( $_POST['roi_import_config_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_import_config_nonce'] ) ) : '';
 		if ( empty( $config_nonce ) || ! wp_verify_nonce( $config_nonce, 'roi_import_config_action' ) ) {
@@ -773,6 +844,30 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_post_status" value="<?php echo esc_attr( $config_values['post_status'] ); ?>" />
 					<p>
 						<?php submit_button( __( 'Confirm and Run Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
+					</p>
+				</form>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( is_array( $chunk_progress ) ) : ?>
+			<div class="card">
+				<h2><?php echo esc_html__( 'Step 3: Continue Import', 'roi-influencer-importer' ); ?></h2>
+				<p><strong><?php echo esc_html__( 'Rows processed:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $chunk_progress['processed'] ); ?> / <?php echo esc_html( (string) $chunk_progress['total'] ); ?></p>
+				<form method="post">
+					<?php wp_nonce_field( 'roi_run_import_action', 'roi_run_import_nonce' ); ?>
+					<input type="hidden" name="roi_title_suffix" value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
+					<input type="hidden" name="roi_include_rank_in_title" value="<?php echo esc_attr( (string) $config_values['include_rank_in_title'] ); ?>" />
+					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
+					<input type="hidden" name="roi_image_label" value="<?php echo esc_attr( $config_values['image_label'] ); ?>" />
+					<input type="hidden" name="roi_category_id" value="<?php echo esc_attr( (string) $config_values['category_id'] ); ?>" />
+					<input type="hidden" name="roi_template_id" value="<?php echo esc_attr( (string) $config_values['template_id'] ); ?>" />
+					<input type="hidden" name="roi_import_author" value="<?php echo esc_attr( (string) $config_values['author_id'] ); ?>" />
+					<input type="hidden" name="roi_base_publish_date" value="<?php echo esc_attr( $config_values['base_publish_date'] ); ?>" />
+					<input type="hidden" name="roi_base_publish_time" value="<?php echo esc_attr( $config_values['base_publish_time'] ); ?>" />
+					<input type="hidden" name="roi_spacing_interval" value="<?php echo esc_attr( (string) $config_values['spacing_interval'] ); ?>" />
+					<input type="hidden" name="roi_post_status" value="<?php echo esc_attr( $config_values['post_status'] ); ?>" />
+					<p>
+						<?php submit_button( __( 'Continue Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
 					</p>
 				</form>
 			</div>
