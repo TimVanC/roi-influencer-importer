@@ -853,8 +853,10 @@ function roi_influencer_importer_render_admin_page() {
 			<div class="card">
 				<h2><?php echo esc_html__( 'Step 3: Continue Import', 'roi-influencer-importer' ); ?></h2>
 				<p><strong><?php echo esc_html__( 'Rows processed:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $chunk_progress['processed'] ); ?> / <?php echo esc_html( (string) $chunk_progress['total'] ); ?></p>
-				<form method="post">
+				<p><?php echo esc_html__( 'Auto-continuing in a moment. You can also continue manually.', 'roi-influencer-importer' ); ?></p>
+				<form method="post" id="roi-continue-import-form">
 					<?php wp_nonce_field( 'roi_run_import_action', 'roi_run_import_nonce' ); ?>
+					<input type="hidden" name="roi_run_import_submit" value="1" />
 					<input type="hidden" name="roi_title_suffix" value="<?php echo esc_attr( $config_values['title_suffix'] ); ?>" />
 					<input type="hidden" name="roi_include_rank_in_title" value="<?php echo esc_attr( (string) $config_values['include_rank_in_title'] ); ?>" />
 					<input type="hidden" name="roi_top_content_block" value="<?php echo esc_attr( $config_values['top_content'] ); ?>" />
@@ -870,6 +872,18 @@ function roi_influencer_importer_render_admin_page() {
 						<?php submit_button( __( 'Continue Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
 					</p>
 				</form>
+				<script>
+					document.addEventListener('DOMContentLoaded', function () {
+						var continueForm = document.getElementById('roi-continue-import-form');
+						if (!continueForm) {
+							return;
+						}
+
+						window.setTimeout(function () {
+							continueForm.submit();
+						}, 1200);
+					});
+				</script>
 			</div>
 		<?php endif; ?>
 
