@@ -1256,9 +1256,13 @@ function roi_influencer_importer_render_admin_page() {
 
 					<h3><?php echo esc_html__( 'Map Images (Optional)', 'roi-influencer-importer' ); ?></h3>
 					<?php if ( ! empty( $image_mapping_rows ) ) : ?>
+						<p>
+							<button type="button" class="button roi-bulk-select-image-button"><?php echo esc_html__( 'Select Image for Selected Rows', 'roi-influencer-importer' ); ?></button>
+						</p>
 						<table class="widefat striped">
 							<thead>
 								<tr>
+									<th><?php echo esc_html__( 'Select', 'roi-influencer-importer' ); ?></th>
 									<th><?php echo esc_html__( 'Full Name', 'roi-influencer-importer' ); ?></th>
 									<th><?php echo esc_html__( 'Title / Company', 'roi-influencer-importer' ); ?></th>
 									<th><?php echo esc_html__( 'Current Image', 'roi-influencer-importer' ); ?></th>
@@ -1273,6 +1277,9 @@ function roi_influencer_importer_render_admin_page() {
 									$override_attachment_id = (int) $image_map_row['override_attachment_id'];
 									?>
 									<tr>
+										<td>
+											<input type="checkbox" class="roi-bulk-row-select" data-row-index="<?php echo esc_attr( (string) $row_index ); ?>" />
+										</td>
 										<td><?php echo esc_html( (string) $image_map_row['fullname'] ); ?></td>
 										<td>
 											<?php
@@ -1486,6 +1493,38 @@ function roi_influencer_importer_render_admin_page() {
 				});
 
 				var mediaFrames = {};
+				function getPreferredImageUrl(attachment) {
+					var imageUrl = attachment.url || '';
+					if (attachment.sizes) {
+						if (attachment.sizes.thumbnail && attachment.sizes.thumbnail.url) {
+							imageUrl = attachment.sizes.thumbnail.url;
+						} else if (attachment.sizes.medium && attachment.sizes.medium.url) {
+							imageUrl = attachment.sizes.medium.url;
+						}
+					}
+					return imageUrl;
+				}
+
+				function applyImageToRow(rowIndex, attachment) {
+					if (!rowIndex) {
+						return;
+					}
+
+					var hiddenInput = document.querySelector('.roi-mapped-image-input[name="roi_mapped_images[' + rowIndex + ']"]');
+					var previewEl = document.querySelector('.roi-image-override-preview[data-row-index="' + rowIndex + '"]');
+
+					if (hiddenInput) {
+						hiddenInput.value = attachment.id || '';
+					}
+
+					if (previewEl) {
+						var imageUrl = getPreferredImageUrl(attachment);
+						if (imageUrl) {
+							previewEl.innerHTML = '<img src="' + imageUrl + '" alt="" style="max-width:72px;height:auto;" />';
+						}
+					}
+				}
+
 				var selectImageButtons = document.querySelectorAll('.roi-select-image-button');
 				selectImageButtons.forEach(function (buttonEl) {
 					buttonEl.addEventListener('click', function () {
@@ -1517,33 +1556,71 @@ function roi_influencer_importer_render_admin_page() {
 								}
 
 								var attachment = selection.toJSON();
-								var hiddenInput = document.querySelector('.roi-mapped-image-input[name="roi_mapped_images[' + rowIndex + ']"]');
-								var previewEl = document.querySelector('.roi-image-override-preview[data-row-index="' + rowIndex + '"]');
-
-								if (hiddenInput) {
-									hiddenInput.value = attachment.id || '';
-								}
-
-								if (previewEl) {
-									var imageUrl = attachment.url || '';
-									if (attachment.sizes) {
-										if (attachment.sizes.thumbnail && attachment.sizes.thumbnail.url) {
-											imageUrl = attachment.sizes.thumbnail.url;
-										} else if (attachment.sizes.medium && attachment.sizes.medium.url) {
-											imageUrl = attachment.sizes.medium.url;
-										}
-									}
-
-									if (imageUrl) {
-										previewEl.innerHTML = '<img src="' + imageUrl + '" alt="" style="max-width:72px;height:auto;" />';
-									}
-								}
+								applyImageToRow(rowIndex, attachment);
 							});
 						}
 
 						mediaFrames[rowIndex].open();
 					});
 				});
+
+				var bulkButton = document.querySelector('.roi-bulk-select-image-button');
+				if (bulkButton) {
+					bulkButton.addEventListener('click', function () {
+						if (typeof wp === 'undefined' || !wp.media) {
+							return;
+						}
+
+						var selectedCheckboxes = Array.prototype.slice.call(document.querySelectorAll('.roi-bulk-row-select:checked'));
+						if (selectedCheckboxes.length === 0) {
+							return;
+						}
+
+						if (!mediaFrames.bulk) {
+							mediaFrames.bulk = wp.media({
+								title: 'Select Image',
+								library: {
+									type: 'image'
+								},
+								button: {
+									text: 'Use this image'
+								},
+								multiple: false
+							});
+
+							mediaFrames.bulk.on('select', function () {
+								var selection = mediaFrames.bulk.state().get('selection').first();
+								if (!selection) {
+									return;
+								}
+
+								var attachment = selection.toJSON();
+								selectedCheckboxes.forEach(function (checkboxEl) {
+									var selectedRowIndex = checkboxEl.getAttribute('data-row-index');
+									applyImageToRow(selectedRowIndex, attachment);
+									checkboxEl.checked = false;
+								});
+							});
+						} else {
+							mediaFrames.bulk.off('select');
+							mediaFrames.bulk.on('select', function () {
+								var selection = mediaFrames.bulk.state().get('selection').first();
+								if (!selection) {
+									return;
+								}
+
+								var attachment = selection.toJSON();
+								selectedCheckboxes.forEach(function (checkboxEl) {
+									var selectedRowIndex = checkboxEl.getAttribute('data-row-index');
+									applyImageToRow(selectedRowIndex, attachment);
+									checkboxEl.checked = false;
+								});
+							});
+						}
+
+						mediaFrames.bulk.open();
+					});
+				}
 			});
 		</script>
 	</div>
