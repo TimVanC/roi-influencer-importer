@@ -50,6 +50,7 @@ function roi_influencer_importer_render_admin_page() {
 	$preview_payload        = '';
 	$mapping_is_valid       = false;
 	$mapped_images          = array();
+	$auto_mapped_images     = array();
 	$current_user_id        = get_current_user_id();
 	$config_values          = array(
 		'title_suffix'      => '',
@@ -241,6 +242,7 @@ function roi_influencer_importer_render_admin_page() {
 		$show_config_form = true;
 		$mapping_is_valid = true;
 		$mapped_images    = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_mapped_images'] ) ? wp_unslash( $_POST['roi_mapped_images'] ) : array() );
+		$auto_mapped_images = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_auto_mapped_images'] ) ? wp_unslash( $_POST['roi_auto_mapped_images'] ) : array() );
 		$import_lock_key      = 'roi_import_run_lock';
 		$import_lock_acquired = false;
 
@@ -423,6 +425,7 @@ function roi_influencer_importer_render_admin_page() {
 								'selected_status'       => $selected_status,
 								'total_rows'            => (int) $total_rows,
 								'mapped_images'         => $mapped_images,
+								'auto_mapped_images'    => $auto_mapped_images,
 							)
 						)
 					);
@@ -574,10 +577,16 @@ function roi_influencer_importer_render_admin_page() {
 						update_post_meta( $post_id, 'roi_import_row_fingerprint', $row_fingerprint );
 
 						$override_attachment_id = isset( $mapped_images[ (int) $row_index ] ) ? (int) $mapped_images[ (int) $row_index ] : 0;
+						$auto_attachment_id     = isset( $auto_mapped_images[ (int) $row_index ] ) ? (int) $auto_mapped_images[ (int) $row_index ] : 0;
 						$assigned_image         = false;
 
+						// Priority: manual override, then auto-matched suggestion, then no image.
 						if ( $override_attachment_id > 0 && wp_attachment_is_image( $override_attachment_id ) ) {
 							set_post_thumbnail( $post_id, $override_attachment_id );
+							$assigned_image = true;
+							++$images_assigned;
+						} elseif ( $auto_attachment_id > 0 && wp_attachment_is_image( $auto_attachment_id ) ) {
+							set_post_thumbnail( $post_id, $auto_attachment_id );
 							$assigned_image = true;
 							++$images_assigned;
 						}
@@ -652,6 +661,7 @@ function roi_influencer_importer_render_admin_page() {
 		$show_config_form = true;
 		$mapping_is_valid = true;
 		$mapped_images    = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_mapped_images'] ) ? wp_unslash( $_POST['roi_mapped_images'] ) : array() );
+		$auto_mapped_images = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_auto_mapped_images'] ) ? wp_unslash( $_POST['roi_auto_mapped_images'] ) : array() );
 		delete_transient( 'roi_import_run_state' );
 
 		$config_nonce = isset( $_POST['roi_import_config_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_import_config_nonce'] ) ) : '';
@@ -836,6 +846,9 @@ function roi_influencer_importer_render_admin_page() {
 						'current_attachment_id' => ( $current_attachment_id > 0 && wp_attachment_is_image( $current_attachment_id ) ) ? (int) $current_attachment_id : 0,
 						'override_attachment_id' => isset( $mapped_images[ (int) $row_index ] ) ? (int) $mapped_images[ (int) $row_index ] : 0,
 					);
+					if ( $current_attachment_id > 0 && wp_attachment_is_image( $current_attachment_id ) ) {
+						$auto_mapped_images[ (int) $row_index ] = (int) $current_attachment_id;
+					}
 				}
 
 				$selected_author_name = __( 'Unknown', 'roi-influencer-importer' );
@@ -1295,10 +1308,16 @@ function roi_influencer_importer_render_admin_page() {
 								<?php endforeach; ?>
 							</tbody>
 						</table>
+						<?php foreach ( $auto_mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
+							<input type="hidden" name="roi_auto_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
+						<?php endforeach; ?>
 					<?php else : ?>
 						<p><?php echo esc_html__( 'No rows available for image mapping.', 'roi-influencer-importer' ); ?></p>
 						<?php foreach ( $mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
 							<input type="hidden" name="roi_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
+						<?php endforeach; ?>
+						<?php foreach ( $auto_mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
+							<input type="hidden" name="roi_auto_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
 						<?php endforeach; ?>
 					<?php endif; ?>
 					<p>
@@ -1342,6 +1361,9 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_post_status" value="<?php echo esc_attr( $config_values['post_status'] ); ?>" />
 					<?php foreach ( $mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
 						<input type="hidden" name="roi_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
+					<?php endforeach; ?>
+					<?php foreach ( $auto_mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
+						<input type="hidden" name="roi_auto_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
 					<?php endforeach; ?>
 					<p>
 						<?php submit_button( __( 'Continue Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
