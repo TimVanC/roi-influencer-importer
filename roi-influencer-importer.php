@@ -33,6 +33,10 @@ function roi_influencer_importer_register_admin_menu() {
  * @return void
  */
 function roi_influencer_importer_render_admin_page() {
+	if ( function_exists( 'wp_enqueue_media' ) ) {
+		wp_enqueue_media();
+	}
+
 	$notice_type            = '';
 	$notice_message         = '';
 	$preview_data           = null;
@@ -40,10 +44,12 @@ function roi_influencer_importer_render_admin_page() {
 	$config_notice_type     = '';
 	$config_notice_message  = '';
 	$computed_preview       = null;
+	$image_mapping_rows     = array();
 	$import_results         = null;
 	$chunk_progress         = null;
 	$preview_payload        = '';
 	$mapping_is_valid       = false;
+	$mapped_images          = array();
 	$current_user_id        = get_current_user_id();
 	$config_values          = array(
 		'title_suffix'      => '',
@@ -234,6 +240,7 @@ function roi_influencer_importer_render_admin_page() {
 	if ( isset( $_POST['roi_run_import_submit'] ) ) {
 		$show_config_form = true;
 		$mapping_is_valid = true;
+		$mapped_images    = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_mapped_images'] ) ? wp_unslash( $_POST['roi_mapped_images'] ) : array() );
 		$import_lock_key      = 'roi_import_run_lock';
 		$import_lock_acquired = false;
 
@@ -415,6 +422,7 @@ function roi_influencer_importer_render_admin_page() {
 								'spacing_interval'      => (int) $spacing_interval,
 								'selected_status'       => $selected_status,
 								'total_rows'            => (int) $total_rows,
+								'mapped_images'         => $mapped_images,
 							)
 						)
 					);
@@ -565,17 +573,29 @@ function roi_influencer_importer_render_admin_page() {
 						update_post_meta( $post_id, 'roi_import_batch_id', $batch_id );
 						update_post_meta( $post_id, 'roi_import_row_fingerprint', $row_fingerprint );
 
-						$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
-						if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
-							$attachment_meta = wp_get_attachment_metadata( $attachment_id );
-							if ( ! empty( $attachment_meta ) ) {
-								// Layer 6 image assignment re-enabled after CDN migration fix.
-								set_post_thumbnail( $post_id, $attachment_id );
-								++$images_assigned;
-							} else {
-								$missing_images[] = $raw_filename;
+						$override_attachment_id = isset( $mapped_images[ (int) $row_index ] ) ? (int) $mapped_images[ (int) $row_index ] : 0;
+						$assigned_image         = false;
+
+						if ( $override_attachment_id > 0 && wp_attachment_is_image( $override_attachment_id ) ) {
+							set_post_thumbnail( $post_id, $override_attachment_id );
+							$assigned_image = true;
+							++$images_assigned;
+						}
+
+						if ( ! $assigned_image ) {
+							$attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
+							if ( $attachment_id > 0 && wp_attachment_is_image( $attachment_id ) ) {
+								$attachment_meta = wp_get_attachment_metadata( $attachment_id );
+								if ( ! empty( $attachment_meta ) ) {
+									// Layer 6 image assignment re-enabled after CDN migration fix.
+									set_post_thumbnail( $post_id, $attachment_id );
+									++$images_assigned;
+									$assigned_image = true;
+								}
 							}
-						} else {
+						}
+
+						if ( ! $assigned_image ) {
 							$missing_images[] = $raw_filename;
 						}
 
@@ -614,7 +634,7 @@ function roi_influencer_importer_render_admin_page() {
 						);
 
 						$config_notice_type    = 'success';
-						$config_notice_message = __( 'Import completed. Review Step 5 for results.', 'roi-influencer-importer' );
+						$config_notice_message = __( 'Import completed. Review Step 6 for results.', 'roi-influencer-importer' );
 					}
 				} else {
 					$config_notice_type    = 'error';
@@ -631,6 +651,7 @@ function roi_influencer_importer_render_admin_page() {
 	if ( isset( $_POST['roi_import_config_submit'] ) ) {
 		$show_config_form = true;
 		$mapping_is_valid = true;
+		$mapped_images    = roi_influencer_importer_parse_mapped_images( isset( $_POST['roi_mapped_images'] ) ? wp_unslash( $_POST['roi_mapped_images'] ) : array() );
 		delete_transient( 'roi_import_run_state' );
 
 		$config_nonce = isset( $_POST['roi_import_config_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['roi_import_config_nonce'] ) ) : '';
@@ -713,14 +734,20 @@ function roi_influencer_importer_render_admin_page() {
 			}
 
 			$last_name_index  = false;
+			$first_name_index = false;
 			$full_name_index  = false;
 			$rank_index       = false;
+			$title_index      = false;
+			$company_index    = false;
 			$category_index   = false;
 			$imagefile_index  = false;
 			if ( is_array( $preview_data ) && isset( $preview_data['headers'] ) && is_array( $preview_data['headers'] ) ) {
 				$last_name_index = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_lastname'], 'lastname' );
+				$first_name_index = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_firstname'], 'firstname' );
 				$full_name_index = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_fullname'], 'fullname' );
 				$rank_index      = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_rank'], 'rank' );
+				$title_index     = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_title'], 'title' );
+				$company_index   = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_company'], 'company' );
 				$category_index  = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_category'], 'category' );
 				$imagefile_index = roi_influencer_importer_resolve_header_index( $preview_data['headers'], $config_values['map_imagefilename'], 'imagefilename' );
 			}
@@ -787,6 +814,27 @@ function roi_influencer_importer_render_admin_page() {
 					$computed_items[] = array(
 						'title'            => $title,
 						'publish_datetime' => wp_date( 'Y-m-d H:i:s', $timestamp ),
+					);
+
+					$row_lastname      = ( false !== $last_name_index && isset( $row[ $last_name_index ] ) ) ? (string) $row[ $last_name_index ] : '';
+					$row_firstname     = ( false !== $first_name_index && isset( $row[ $first_name_index ] ) ) ? (string) $row[ $first_name_index ] : '';
+					$row_title         = ( false !== $title_index && isset( $row[ $title_index ] ) ) ? (string) $row[ $title_index ] : '';
+					$row_company       = ( false !== $company_index && isset( $row[ $company_index ] ) ) ? (string) $row[ $company_index ] : '';
+					$row_imagefilename = ( false !== $imagefile_index && isset( $row[ $imagefile_index ] ) ) ? trim( (string) $row[ $imagefile_index ] ) : '';
+					$raw_filename      = $row_lastname . ', ' . $row_firstname . ' - ' . $config_values['image_label'];
+					if ( '' !== $row_imagefilename ) {
+						$raw_filename = $row_imagefilename;
+					}
+
+					$current_attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
+					$image_mapping_rows[]  = array(
+						'row_index'             => (int) $row_index,
+						'fullname'              => $fullname,
+						'title'                 => $row_title,
+						'company'               => $row_company,
+						'raw_filename'          => $raw_filename,
+						'current_attachment_id' => ( $current_attachment_id > 0 && wp_attachment_is_image( $current_attachment_id ) ) ? (int) $current_attachment_id : 0,
+						'override_attachment_id' => isset( $mapped_images[ (int) $row_index ] ) ? (int) $mapped_images[ (int) $row_index ] : 0,
 					);
 				}
 
@@ -1136,7 +1184,7 @@ function roi_influencer_importer_render_admin_page() {
 
 		<?php if ( is_array( $computed_preview ) ) : ?>
 			<div class="card">
-				<h2><?php echo esc_html__( 'Step 4: Confirm and Run', 'roi-influencer-importer' ); ?></h2>
+				<h2><?php echo esc_html__( 'Step 4: Image Mapping', 'roi-influencer-importer' ); ?></h2>
 
 				<p><strong><?php echo esc_html__( 'Total posts to be created:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $computed_preview['total_posts'] ); ?></p>
 				<p><strong><?php echo esc_html__( 'Selected author name:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $computed_preview['selected_author_name'] ); ?></p>
@@ -1164,7 +1212,7 @@ function roi_influencer_importer_render_admin_page() {
 					<p><?php echo esc_html__( 'No computed publish datetimes available.', 'roi-influencer-importer' ); ?></p>
 				<?php endif; ?>
 
-				<p><em><?php echo esc_html__( 'Posts have not been created yet.', 'roi-influencer-importer' ); ?></em></p>
+				<p><em><?php echo esc_html__( 'Posts have not been created yet. Optionally override images before running the import.', 'roi-influencer-importer' ); ?></em></p>
 
 				<form method="post">
 					<?php wp_nonce_field( 'roi_run_import_action', 'roi_run_import_nonce' ); ?>
@@ -1192,8 +1240,69 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_base_publish_time" value="<?php echo esc_attr( $config_values['base_publish_time'] ); ?>" />
 					<input type="hidden" name="roi_spacing_interval" value="<?php echo esc_attr( (string) $config_values['spacing_interval'] ); ?>" />
 					<input type="hidden" name="roi_post_status" value="<?php echo esc_attr( $config_values['post_status'] ); ?>" />
+
+					<h3><?php echo esc_html__( 'Map Images (Optional)', 'roi-influencer-importer' ); ?></h3>
+					<?php if ( ! empty( $image_mapping_rows ) ) : ?>
+						<table class="widefat striped">
+							<thead>
+								<tr>
+									<th><?php echo esc_html__( 'Full Name', 'roi-influencer-importer' ); ?></th>
+									<th><?php echo esc_html__( 'Title / Company', 'roi-influencer-importer' ); ?></th>
+									<th><?php echo esc_html__( 'Current Image', 'roi-influencer-importer' ); ?></th>
+									<th><?php echo esc_html__( 'Override Image', 'roi-influencer-importer' ); ?></th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ( $image_mapping_rows as $image_map_row ) : ?>
+									<?php
+									$row_index              = (int) $image_map_row['row_index'];
+									$current_attachment_id  = (int) $image_map_row['current_attachment_id'];
+									$override_attachment_id = (int) $image_map_row['override_attachment_id'];
+									?>
+									<tr>
+										<td><?php echo esc_html( (string) $image_map_row['fullname'] ); ?></td>
+										<td>
+											<?php
+											$title_company = trim( (string) $image_map_row['title'] );
+											$company_text  = trim( (string) $image_map_row['company'] );
+											if ( '' !== $company_text ) {
+												$title_company = ( '' !== $title_company ? $title_company . ' / ' : '' ) . $company_text;
+											}
+											echo esc_html( '' !== $title_company ? $title_company : __( 'N/A', 'roi-influencer-importer' ) );
+											?>
+										</td>
+										<td>
+											<?php if ( $current_attachment_id > 0 ) : ?>
+												<?php echo wp_kses_post( wp_get_attachment_image( $current_attachment_id, array( 72, 72 ) ) ); ?>
+											<?php else : ?>
+												<?php echo esc_html__( 'No image', 'roi-influencer-importer' ); ?>
+											<?php endif; ?>
+										</td>
+										<td>
+											<div class="roi-image-override-preview" data-row-index="<?php echo esc_attr( (string) $row_index ); ?>">
+												<?php if ( $override_attachment_id > 0 ) : ?>
+													<?php echo wp_kses_post( wp_get_attachment_image( $override_attachment_id, array( 72, 72 ) ) ); ?>
+												<?php else : ?>
+													<?php echo esc_html__( 'No override selected', 'roi-influencer-importer' ); ?>
+												<?php endif; ?>
+											</div>
+											<input type="hidden" class="roi-mapped-image-input" name="roi_mapped_images[<?php echo esc_attr( (string) $row_index ); ?>]" value="<?php echo esc_attr( (string) $override_attachment_id ); ?>" />
+											<p>
+												<button type="button" class="button roi-select-image-button" data-row-index="<?php echo esc_attr( (string) $row_index ); ?>"><?php echo esc_html__( 'Select Image', 'roi-influencer-importer' ); ?></button>
+											</p>
+										</td>
+									</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+					<?php else : ?>
+						<p><?php echo esc_html__( 'No rows available for image mapping.', 'roi-influencer-importer' ); ?></p>
+						<?php foreach ( $mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
+							<input type="hidden" name="roi_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
+						<?php endforeach; ?>
+					<?php endif; ?>
 					<p>
-						<?php submit_button( __( 'Confirm and Run Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
+						<?php submit_button( __( 'Run Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
 					</p>
 				</form>
 			</div>
@@ -1201,7 +1310,7 @@ function roi_influencer_importer_render_admin_page() {
 
 		<?php if ( is_array( $chunk_progress ) ) : ?>
 			<div class="card">
-				<h2><?php echo esc_html__( 'Step 4: Continue Import', 'roi-influencer-importer' ); ?></h2>
+				<h2><?php echo esc_html__( 'Step 5: Continue Import', 'roi-influencer-importer' ); ?></h2>
 				<p><strong><?php echo esc_html__( 'Rows processed:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $chunk_progress['processed'] ); ?> / <?php echo esc_html( (string) $chunk_progress['total'] ); ?></p>
 				<p><?php echo esc_html__( 'Auto-continuing in a moment. You can also continue manually.', 'roi-influencer-importer' ); ?></p>
 				<form method="post" id="roi-continue-import-form">
@@ -1231,6 +1340,9 @@ function roi_influencer_importer_render_admin_page() {
 					<input type="hidden" name="roi_base_publish_time" value="<?php echo esc_attr( $config_values['base_publish_time'] ); ?>" />
 					<input type="hidden" name="roi_spacing_interval" value="<?php echo esc_attr( (string) $config_values['spacing_interval'] ); ?>" />
 					<input type="hidden" name="roi_post_status" value="<?php echo esc_attr( $config_values['post_status'] ); ?>" />
+					<?php foreach ( $mapped_images as $mapped_row_index => $mapped_attachment_id ) : ?>
+						<input type="hidden" name="roi_mapped_images[<?php echo esc_attr( (string) $mapped_row_index ); ?>]" value="<?php echo esc_attr( (string) $mapped_attachment_id ); ?>" />
+					<?php endforeach; ?>
 					<p>
 						<?php submit_button( __( 'Continue Import', 'roi-influencer-importer' ), 'primary', 'roi_run_import_submit', false ); ?>
 					</p>
@@ -1252,7 +1364,7 @@ function roi_influencer_importer_render_admin_page() {
 
 		<?php if ( is_array( $import_results ) ) : ?>
 			<div class="card">
-				<h2><?php echo esc_html__( 'Step 5: Import Results', 'roi-influencer-importer' ); ?></h2>
+				<h2><?php echo esc_html__( 'Step 6: Import Results', 'roi-influencer-importer' ); ?></h2>
 				<p><strong><?php echo esc_html__( 'Total rows processed:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $import_results['total_rows_processed'] ); ?></p>
 				<p><strong><?php echo esc_html__( 'Posts successfully created:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( (string) $import_results['total_created'] ); ?></p>
 				<p><strong><?php echo esc_html__( 'Batch ID:', 'roi-influencer-importer' ); ?></strong> <?php echo esc_html( $import_results['batch_id'] ); ?></p>
@@ -1350,6 +1462,66 @@ function roi_influencer_importer_render_admin_page() {
 						});
 					});
 				});
+
+				var mediaFrames = {};
+				var selectImageButtons = document.querySelectorAll('.roi-select-image-button');
+				selectImageButtons.forEach(function (buttonEl) {
+					buttonEl.addEventListener('click', function () {
+						if (typeof wp === 'undefined' || !wp.media) {
+							return;
+						}
+
+						var rowIndex = buttonEl.getAttribute('data-row-index');
+						if (!rowIndex) {
+							return;
+						}
+
+						if (!mediaFrames[rowIndex]) {
+							mediaFrames[rowIndex] = wp.media({
+								title: 'Select Image',
+								library: {
+									type: 'image'
+								},
+								button: {
+									text: 'Use this image'
+								},
+								multiple: false
+							});
+
+							mediaFrames[rowIndex].on('select', function () {
+								var selection = mediaFrames[rowIndex].state().get('selection').first();
+								if (!selection) {
+									return;
+								}
+
+								var attachment = selection.toJSON();
+								var hiddenInput = document.querySelector('.roi-mapped-image-input[name="roi_mapped_images[' + rowIndex + ']"]');
+								var previewEl = document.querySelector('.roi-image-override-preview[data-row-index="' + rowIndex + '"]');
+
+								if (hiddenInput) {
+									hiddenInput.value = attachment.id || '';
+								}
+
+								if (previewEl) {
+									var imageUrl = attachment.url || '';
+									if (attachment.sizes) {
+										if (attachment.sizes.thumbnail && attachment.sizes.thumbnail.url) {
+											imageUrl = attachment.sizes.thumbnail.url;
+										} else if (attachment.sizes.medium && attachment.sizes.medium.url) {
+											imageUrl = attachment.sizes.medium.url;
+										}
+									}
+
+									if (imageUrl) {
+										previewEl.innerHTML = '<img src="' + imageUrl + '" alt="" style="max-width:72px;height:auto;" />';
+									}
+								}
+							});
+						}
+
+						mediaFrames[rowIndex].open();
+					});
+				});
 			});
 		</script>
 	</div>
@@ -1389,6 +1561,32 @@ function roi_influencer_importer_normalize_csv_row( $row ) {
 	}
 
 	return $row;
+}
+
+/**
+ * Parse and sanitize mapped image overrides from request data.
+ *
+ * @param mixed $raw_mappings Raw mapping values.
+ *
+ * @return array
+ */
+function roi_influencer_importer_parse_mapped_images( $raw_mappings ) {
+	if ( ! is_array( $raw_mappings ) ) {
+		return array();
+	}
+
+	$mapped_images = array();
+	foreach ( $raw_mappings as $row_index => $attachment_id ) {
+		$row_index_int      = absint( $row_index );
+		$attachment_id_int  = absint( $attachment_id );
+		if ( $attachment_id_int <= 0 ) {
+			continue;
+		}
+
+		$mapped_images[ $row_index_int ] = $attachment_id_int;
+	}
+
+	return $mapped_images;
 }
 
 /**
