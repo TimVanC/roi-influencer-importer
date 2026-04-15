@@ -113,10 +113,13 @@ function roi_influencer_importer_render_admin_page() {
 						$notice_message = __( 'Could not read the uploaded CSV file.', 'roi-influencer-importer' );
 					} else {
 						$header_row = fgetcsv( $handle );
+						if ( is_array( $header_row ) ) {
+							$header_row = roi_influencer_importer_normalize_csv_row( $header_row );
+						}
 						$parsed_rows = array();
 
 						while ( false !== ( $row = fgetcsv( $handle ) ) ) {
-							$parsed_rows[] = $row;
+							$parsed_rows[] = roi_influencer_importer_normalize_csv_row( $row );
 						}
 
 						fclose( $handle );
@@ -1351,6 +1354,41 @@ function roi_influencer_importer_render_admin_page() {
 		</script>
 	</div>
 	<?php
+}
+
+/**
+ * Normalize one CSV cell value to UTF-8 and trim whitespace.
+ *
+ * @param mixed $value Raw CSV cell value.
+ *
+ * @return string
+ */
+function roi_influencer_importer_normalize_csv_text_value( $value ) {
+	$value = (string) $value;
+	if ( function_exists( 'mb_convert_encoding' ) ) {
+		$value = mb_convert_encoding( $value, 'UTF-8', 'UTF-8, ISO-8859-1, Windows-1252' );
+	}
+
+	return trim( $value );
+}
+
+/**
+ * Normalize all values in a CSV row.
+ *
+ * @param array $row Raw CSV row.
+ *
+ * @return array
+ */
+function roi_influencer_importer_normalize_csv_row( $row ) {
+	if ( ! is_array( $row ) ) {
+		return array();
+	}
+
+	foreach ( $row as $index => $value ) {
+		$row[ $index ] = roi_influencer_importer_normalize_csv_text_value( $value );
+	}
+
+	return $row;
 }
 
 /**
