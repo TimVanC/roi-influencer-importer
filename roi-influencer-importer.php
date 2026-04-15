@@ -839,6 +839,7 @@ function roi_influencer_importer_render_admin_page() {
 					$current_attachment_id = roi_influencer_importer_find_attachment_id_by_filename( $raw_filename );
 					$image_mapping_rows[]  = array(
 						'row_index'             => (int) $row_index,
+						'lastname'              => $row_lastname,
 						'fullname'              => $fullname,
 						'title'                 => $row_title,
 						'company'               => $row_company,
@@ -1275,6 +1276,10 @@ function roi_influencer_importer_render_admin_page() {
 									$row_index              = (int) $image_map_row['row_index'];
 									$current_attachment_id  = (int) $image_map_row['current_attachment_id'];
 									$override_attachment_id = (int) $image_map_row['override_attachment_id'];
+									$search_query           = trim( (string) $image_map_row['lastname'] );
+									if ( '' === $search_query ) {
+										$search_query = trim( (string) $image_map_row['fullname'] );
+									}
 									?>
 									<tr>
 										<td>
@@ -1308,7 +1313,7 @@ function roi_influencer_importer_render_admin_page() {
 											</div>
 											<input type="hidden" class="roi-mapped-image-input" name="roi_mapped_images[<?php echo esc_attr( (string) $row_index ); ?>]" value="<?php echo esc_attr( (string) $override_attachment_id ); ?>" />
 											<p>
-												<button type="button" class="button roi-select-image-button" data-row-index="<?php echo esc_attr( (string) $row_index ); ?>"><?php echo esc_html__( 'Select Image', 'roi-influencer-importer' ); ?></button>
+												<button type="button" class="button roi-select-image-button" data-row-index="<?php echo esc_attr( (string) $row_index ); ?>" data-search-query="<?php echo esc_attr( $search_query ); ?>"><?php echo esc_html__( 'Select Image', 'roi-influencer-importer' ); ?></button>
 											</p>
 										</td>
 									</tr>
@@ -1533,6 +1538,7 @@ function roi_influencer_importer_render_admin_page() {
 						}
 
 						var rowIndex = buttonEl.getAttribute('data-row-index');
+						var rowSearchQuery = (buttonEl.getAttribute('data-search-query') || '').trim();
 						if (!rowIndex) {
 							return;
 						}
@@ -1558,6 +1564,17 @@ function roi_influencer_importer_render_admin_page() {
 								var attachment = selection.toJSON();
 								applyImageToRow(rowIndex, attachment);
 							});
+						}
+
+						var rowFrame = mediaFrames[rowIndex];
+						if (rowFrame && rowFrame.state && rowFrame.state()) {
+							var state = rowFrame.state();
+							if (state && state.get) {
+								var library = state.get('library');
+								if (library && library.props) {
+									library.props.set('search', rowSearchQuery);
+								}
+							}
 						}
 
 						mediaFrames[rowIndex].open();
